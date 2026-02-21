@@ -1,10 +1,10 @@
-# LocSync
+# LangSync
 
-LocSync (Locale Sync) is a modern I18N synchronization tool with parallel translation support, built with Python. It's designed to be used as a standalone CLI to keep your translation files (JSON) in sync using a source file as the "Source of Truth."
+LangSync (Language Sync) is a modern I18N synchronization tool with parallel translation support, built with Python. It's designed to be used as a standalone CLI to keep your translation files (JSON) in sync using a source file as the "Source of Truth."
 
 ## Installation
 
-To use `locsync` as a CLI command anywhere, the recommended way on modern Linux (like Arch, Ubuntu 23.04+) and macOS is using `pipx`:
+To use `langsync` as a CLI command anywhere, the recommended way on modern Linux (like Arch, Ubuntu 23.04+) and macOS is using `pipx`:
 
 ### Using pipx (Recommended)
 
@@ -18,8 +18,8 @@ pipx install .
 If your system allows it (or inside a virtual environment):
 
 ```bash
-git clone https://github.com/youruser/locsync.git
-cd locsync
+git clone https://github.com/youruser/langsync.git
+cd langsync
 pip install .
 ```
 
@@ -29,17 +29,17 @@ pip install .
 # Install dependencies
 pipenv install
 
-# Install the project in editable mode so the 'locsync' command is available
+# Install the project in editable mode so the 'langsync' command is available
 pipenv run pip install -e .
 
 # Run the tool
-pipenv run locsync
+pipenv run langsync
 ```
 
 Alternatively, you can run it without installation using the module flag (ensure `src` is in your `PYTHONPATH`):
 
 ```bash
-PYTHONPATH=src pipenv run python -m locsync
+PYTHONPATH=src pipenv run python -m langsync
 ```
 
 ## Usage
@@ -47,10 +47,10 @@ PYTHONPATH=src pipenv run python -m locsync
 Once installed, you can simply run:
 
 ```bash
-locsync
+langsync
 ```
 
-**Note:** If no configuration file is found, LocSync uses these defaults:
+**Note:** If no configuration file is found, LangSync uses these defaults:
 - **Source:** `messages/en-GB.json`
 - **Target Directory:** `messages/`
 
@@ -63,12 +63,12 @@ locsync
 
 ## Configuration
 
-LocSync automatically looks for configuration in:
-1. `locsync.json` in the current directory.
-2. `.locsync.json` in the current directory.
-3. `~/.locsync.json` (Global configuration).
+LangSync automatically looks for configuration in:
+1. `langsync.json` in the current directory.
+2. `.langsync.json` in the current directory.
+3. `~/.langsync.json` (Global configuration).
 
-### Example `locsync.json`
+### Example `langsync.json`
 
 Create this file in your project root:
 
@@ -97,14 +97,14 @@ Create this file in your project root:
 ## Project Structure
 
 ```
-locsync/
+langsync/
 ├── Pipfile
 ├── Pipfile.lock
 ├── pyproject.toml
 ├── README.md
-├── locsync.json
+├── langsync.json
 └── src/
-    └── locsync/
+    └── langsync/
         ├── __init__.py
         ├── __main__.py
         ├── cli.py

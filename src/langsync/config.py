@@ -64,8 +64,8 @@ def load_config(config_path=None):
     Load configuration from a file.
     Order of preference:
     1. config_path (if provided)
-    2. locsync.json or .locsync.json in CWD
-    3. ~/.locsync.json
+    2. langsync.json or .langsync.json in CWD
+    3. ~/.langsync.json
     """
     config = {
         'source': DEFAULT_SOURCE,
@@ -80,11 +80,11 @@ def load_config(config_path=None):
     if config_path:
         search_paths.append(config_path)
     
-    # Check for both locsync.json and .locsync.json in CWD
-    search_paths.append(os.path.join(os.getcwd(), 'locsync.json'))
-    search_paths.append(os.path.join(os.getcwd(), '.locsync.json'))
+    # Check for both langsync.json and .langsync.json in CWD
+    search_paths.append(os.path.join(os.getcwd(), 'langsync.json'))
+    search_paths.append(os.path.join(os.getcwd(), '.langsync.json'))
     # Global fallback
-    search_paths.append(os.path.expanduser('~/.locsync.json'))
+    search_paths.append(os.path.expanduser('~/.langsync.json'))
 
     loaded_path = None
     for path in search_paths:

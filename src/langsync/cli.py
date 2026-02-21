@@ -80,7 +80,7 @@ def main(source, dir, locales, config_file):
 
     # Enhanced Error Handling
     if not source:
-        console.print("[red]Error: No source file configured. Provide it via --source or locsync.json.")
+        console.print("[red]Error: No source file configured. Provide it via --source or langsync.json.")
         sys.exit(1)
     
     if not os.path.exists(source):
@@ -88,7 +88,7 @@ def main(source, dir, locales, config_file):
         sys.exit(1)
 
     if not dir:
-        console.print("[red]Error: No locale directory configured. Provide it via --dir or locsync.json.")
+        console.print("[red]Error: No locale directory configured. Provide it via --dir or langsync.json.")
         sys.exit(1)
 
     if not os.path.exists(dir):
@@ -122,7 +122,7 @@ def main(source, dir, locales, config_file):
         config_msg = f"Using config from: [cyan]{loaded_path}[/cyan]\n" + config_msg
 
     console.print(Panel.fit(
-        f"[bold blue]LocSync Tool[/bold blue]\n" + config_msg,
+        f"[bold blue]LangSync Tool[/bold blue]\n" + config_msg,
         title="Configuration"
     ))
 
