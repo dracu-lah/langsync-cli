@@ -26,9 +26,20 @@ pip install .
 ### Development with Pipenv
 
 ```bash
-cd locsync
+# Install dependencies
 pipenv install
+
+# Install the project in editable mode so the 'locsync' command is available
+pipenv run pip install -e .
+
+# Run the tool
 pipenv run locsync
+```
+
+Alternatively, you can run it without installation using the module flag (ensure `src` is in your `PYTHONPATH`):
+
+```bash
+PYTHONPATH=src pipenv run python -m locsync
 ```
 
 ## Usage
