@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locsync"
+version = "0.1.0"
+description = "A modern I18N sync tool with parallel translation."
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "click",
+    "rich",
+    "deep-translator"
+]
+
+[project.scripts]
+locsync = "locsync.cli:main"
