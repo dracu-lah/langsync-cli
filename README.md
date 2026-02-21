@@ -1,76 +1,84 @@
-# LangSync
+# 🌍 LangSync
 
-LangSync (Language Sync) is a modern I18N synchronization tool with parallel translation support, built with Python. It's designed to be used as a standalone CLI to keep your translation files (JSON) in sync using a source file as the "Source of Truth."
+**LangSync** (Language Sync) is a high-performance I18N synchronization tool with parallel translation support. It keeps your translation files (JSON) perfectly in sync using a single source file as the "Source of Truth."
 
-## Installation
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-To use `langsync` as a CLI command anywhere, the recommended way on modern Linux (like Arch, Ubuntu 23.04+) and macOS is using `pipx`:
+---
 
-### Using pipx (Recommended)
+## 🚀 Key Features
+
+-   **Parallel Processing:** Syncs multiple locales and translates keys in parallel for maximum speed.
+-   **Whitelist Protection:** Prevent specific brand names or technical terms from being translated.
+-   **Smart Placeholders:** Automatically protects `{variable}` and `<tag>` placeholders during translation.
+-   **Beautiful UI:** Interactive progress bars and detailed summary tables powered by `rich`.
+-   **Pruning:** Automatically removes keys from target files that no longer exist in the source.
+
+---
+
+## 📦 Installation
+
+### 1. Install `pipx` (Recommended)
+`pipx` is the best way to install Python CLI tools in isolated environments.
+
+| OS / Distro | Command |
+| :--- | :--- |
+| **Arch Linux** | `sudo pacman -S python-pipx` |
+| **Ubuntu / Debian** | `sudo apt install pipx` |
+| **macOS (Homebrew)** | `brew install pipx` |
+| **Fedora** | `sudo dnf install pipx` |
+| **Windows** | `pip install pipx` |
+
+> **Note:** After installing `pipx`, run `pipx ensurepath` and restart your terminal.
+
+### 2. Install LangSync
+Once `pipx` is ready, install LangSync directly from the source:
 
 ```bash
-# Install pipx if you don't have it (e.g., sudo pacman -S python-pipx)
+# Clone the repository
+git clone https://github.com/youruser/langsync.git
+cd langsync
+
+# Install as a global CLI tool
 pipx install .
 ```
 
-### From Source (Traditional pip)
+---
 
-If your system allows it (or inside a virtual environment):
+## 🛠 Usage
 
-```bash
-git clone https://github.com/youruser/langsync.git
-cd langsync
-pip install .
-```
-
-### Development with Pipenv
-
-```bash
-# Install dependencies
-pipenv install
-
-# Install the project in editable mode so the 'langsync' command is available
-pipenv run pip install -e .
-
-# Run the tool
-pipenv run langsync
-```
-
-Alternatively, you can run it without installation using the module flag (ensure `src` is in your `PYTHONPATH`):
-
-```bash
-PYTHONPATH=src pipenv run python -m langsync
-```
-
-## Usage
-
-Once installed, you can simply run:
+### Basic Sync
+Run LangSync in your project root. By default, it looks for `messages/en-GB.json`.
 
 ```bash
 langsync
 ```
 
-**Note:** If no configuration file is found, LangSync uses these defaults:
-- **Source:** `messages/en-GB.json`
-- **Target Directory:** `messages/`
+### Advanced CLI Options
+Customize the sync process with flags:
 
-### CLI Options
+```bash
+# Sync specific locales only
+langsync --locales es-ES,fr-FR
 
-- `--source`: Path to the source JSON file (e.g., `messages/en-GB.json`).
-- `--dir`: Directory containing other locale files.
-- `--locales`: Comma-separated list of locales to sync (optional, e.g., `es-ES,fr-FR`).
-- `--config-file`: Path to a custom config JSON file.
+# Specify a different source and target directory
+langsync --source i18n/main.json --dir i18n/locales/
 
-## Configuration
+# Use a custom configuration file
+langsync --config-file project-config.json
+```
 
-LangSync automatically looks for configuration in:
-1. `langsync.json` in the current directory.
-2. `.langsync.json` in the current directory.
-3. `~/.langsync.json` (Global configuration).
+---
+
+## ⚙️ Configuration
+
+LangSync automatically searches for configuration in the following order:
+1.  `langsync.json` (Local)
+2.  `.langsync.json` (Local Hidden)
+3.  `~/.langsync.json` (Global)
 
 ### Example `langsync.json`
-
-Create this file in your project root:
 
 ```json
 {
@@ -80,39 +88,56 @@ Create this file in your project root:
   "max_parallel_locales": 3,
   "delay_between_requests": 0.2,
   "whitelist": [
-    "BrandName",
-    "TechnicalTerm"
+    "LangSync",
+    "SwayWM",
+    "Arch Linux"
   ]
 }
 ```
 
-## Features
+---
 
-- **Parallel Processing:** Syncs multiple locales and translates keys in parallel.
-- **Whitelist Protection:** Prevents specific terms from being translated.
-- **Placeholder Support:** Protects `{variable}` and `<tag>` placeholders.
-- **Robust Error Handling:** Clear messages for missing files or invalid configs.
-- **Rich Interface:** Beautiful progress bars and summary tables.
+## 🧑‍💻 Development Setup
 
-## Project Structure
+If you want to contribute or run from source without installing globally:
 
+```bash
+# Setup environment
+pipenv install
+
+# Install in editable mode
+pipenv run pip install -e .
+
+# Run the dev version
+pipenv run langsync
 ```
+
+---
+
+## 📂 Project Structure
+
+```text
 langsync/
-├── Pipfile
-├── Pipfile.lock
-├── pyproject.toml
-├── README.md
-├── langsync.json
+├── pyproject.toml       # Build system & CLI entry points
+├── langsync.json        # Configuration (Optional)
 └── src/
-    └── langsync/
-        ├── __init__.py
-        ├── __main__.py
-        ├── cli.py
-        ├── config.py
-        ├── processor.py
-        └── translator.py
+    └── langsync/        # Main Package
+        ├── cli.py       # Command Line Interface
+        ├── config.py    # Config & Whitelist Management
+        ├── processor.py # JSON Logic & Pruning
+        └── translator.py# Translation Engine & Protection
 ```
 
-## License
+---
 
-MIT
+## 📜 License
+
+**MIT License**
+
+Copyright (c) 2026
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
