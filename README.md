@@ -4,9 +4,18 @@ LocSync (Locale Sync) is a modern I18N synchronization tool with parallel transl
 
 ## Installation
 
-To use `locsync` as a CLI command anywhere, you can install it via `pip`:
+To use `locsync` as a CLI command anywhere, the recommended way on modern Linux (like Arch, Ubuntu 23.04+) and macOS is using `pipx`:
 
-### From Source (Cloning the repo)
+### Using pipx (Recommended)
+
+```bash
+# Install pipx if you don't have it (e.g., sudo pacman -S python-pipx)
+pipx install .
+```
+
+### From Source (Traditional pip)
+
+If your system allows it (or inside a virtual environment):
 
 ```bash
 git clone https://github.com/youruser/locsync.git
@@ -19,8 +28,7 @@ pip install .
 ```bash
 cd locsync
 pipenv install
-pipenv shell
-# Now you can use 'locsync' or 'python -m locsync'
+pipenv run locsync
 ```
 
 ## Usage
@@ -30,6 +38,10 @@ Once installed, you can simply run:
 ```bash
 locsync
 ```
+
+**Note:** If no configuration file is found, LocSync uses these defaults:
+- **Source:** `messages/en-GB.json`
+- **Target Directory:** `messages/`
 
 ### CLI Options
 
