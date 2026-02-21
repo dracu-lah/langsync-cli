@@ -16,3 +16,6 @@ dependencies = [
 
 [project.scripts]
 locsync = "locsync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

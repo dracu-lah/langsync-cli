@@ -64,8 +64,8 @@ def load_config(config_path=None):
     Load configuration from a file.
     Order of preference:
     1. config_path (if provided)
-    2. trsync.json or .trsync.json in CWD
-    3. ~/.trsync.json
+    2. locsync.json or .locsync.json in CWD
+    3. ~/.locsync.json
     """
     config = {
         'source': DEFAULT_SOURCE,
