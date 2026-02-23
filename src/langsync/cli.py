@@ -1,6 +1,7 @@
 import os
 import sys
 import click
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
@@ -11,6 +12,7 @@ from rich.panel import Panel
 from .translator import TranslationService, get_translator_code
 from .processor import LocaleProcessor
 from .config import load_config
+from . import __version__
 
 console = Console()
 
@@ -34,26 +36,43 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
     locale_task_id = progress.add_task(f"[cyan]{locale}", total=len(missing_items))
     
     translated_count = 0
-    
-    max_workers_per_locale = config.get('max_workers_per_locale', 5)
+    batch_size = config.get('batch_size', 25)
     delay = config.get('delay_between_requests', 0.2)
+    retry_count = config.get('retry_count', 3)
     
-    with ThreadPoolExecutor(max_workers=max_workers_per_locale) as executor:
-        future_to_item = {
-            executor.submit(translator_service.translate, value, delay): (path, value)
-            for path, value in missing_items
-        }
+    # Split missing items into batches
+    batches = [missing_items[i:i + batch_size] for i in range(0, len(missing_items), batch_size)]
+    
+    for batch in batches:
+        paths = [item[0] for item in batch]
+        values = [item[1] for item in batch]
         
-        for future in as_completed(future_to_item):
-            path, original_value = future_to_item[future]
+        translated_values = None
+        for attempt in range(retry_count):
             try:
-                translated_value = future.result()
-                LocaleProcessor.set_value_by_path(target_data, path, translated_value)
-                translated_count += 1
+                translated_values = translator_service.translate_batch(values, delay)
+                if translated_values and len(translated_values) == len(values):
+                    break
             except Exception as e:
-                console.print(f"[red]Error translating {locale} path {'.'.join(path)}: {e}")
-            
-            progress.update(locale_task_id, advance=1)
+                if "RATE_LIMIT_HIT" in str(e):
+                    # Pause and increase delay for this locale
+                    cooldown = 2 * (attempt + 1)
+                    console.print(f"[yellow][Rate Limit] {locale} cooling down for {cooldown}s...[/yellow]")
+                    time.sleep(cooldown)
+                    delay = min(delay * 2, 2.0) # Gradually increase delay up to 2s
+                else:
+                    if attempt == retry_count - 1:
+                        console.print(f"[red]Error translating {locale} batch after {retry_count} attempts: {e}")
+                    time.sleep(1 * (attempt + 1)) # Exponential backoff
+        
+        if translated_values and len(translated_values) == len(values):
+            for path, trans_val in zip(paths, translated_values):
+                LocaleProcessor.set_value_by_path(target_data, path, trans_val)
+                translated_count += 1
+                progress.update(locale_task_id, advance=1)
+        else:
+            # If batch failed, skip this batch to avoid blocking
+            progress.update(locale_task_id, advance=len(values))
 
     LocaleProcessor.prune_extra_keys(source_data, target_data)
     LocaleProcessor.save_json(target_file, target_data)
@@ -70,6 +89,7 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 @click.option('--config-file', help='Path to config JSON file.')
 def main(source, dir, locales, config_file):
     """Modern I18N sync tool with parallel translation."""
+    start_time = time.time()
     
     # Load configuration
     config, loaded_path = load_config(config_file)
@@ -117,13 +137,13 @@ def main(source, dir, locales, config_file):
         console.print(f"[yellow]Warning: No locale files found in '{dir}' to sync (excluding source).")
         return
 
-    config_msg = f"Source: [green]{source}[/green]\nLocales to sync: [yellow]{len(target_locales)}[/yellow]"
+    config_msg = f"Version: [bold magenta]{__version__}[/bold magenta]\nSource: [green]{source}[/green]\nLocales to sync: [yellow]{len(target_locales)}[/yellow]"
     if loaded_path:
-        config_msg = f"Using config from: [cyan]{loaded_path}[/cyan]\n" + config_msg
+        config_msg = f"Config: [cyan]{loaded_path}[/cyan]\n" + config_msg
 
     console.print(Panel.fit(
         f"[bold blue]LangSync Tool[/bold blue]\n" + config_msg,
-        title="Configuration"
+        title="Settings"
     ))
 
     results = []
@@ -160,6 +180,9 @@ def main(source, dir, locales, config_file):
         table.add_row(locale, status, str(count))
 
     console.print(table)
+    
+    total_time = time.time() - start_time
+    console.print(f"\n[bold green]✓[/bold green] Finished in [bold cyan]{total_time:.2f}s[/bold cyan]")
 
 if __name__ == "__main__":
     main()

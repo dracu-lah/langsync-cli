@@ -54,6 +54,8 @@ LANG_MAP = {
 MAX_WORKERS_PER_LOCALE = 5
 MAX_PARALLEL_LOCALES = 3
 DELAY_BETWEEN_REQUESTS = 0.2
+BATCH_SIZE = 25
+RETRY_COUNT = 3
 
 # File settings
 DEFAULT_SOURCE = 'messages/en-GB.json'
@@ -73,6 +75,8 @@ def load_config(config_path=None):
         'max_workers_per_locale': MAX_WORKERS_PER_LOCALE,
         'max_parallel_locales': MAX_PARALLEL_LOCALES,
         'delay_between_requests': DELAY_BETWEEN_REQUESTS,
+        'batch_size': BATCH_SIZE,
+        'retry_count': RETRY_COUNT,
         'whitelist': WHITELIST
     }
 

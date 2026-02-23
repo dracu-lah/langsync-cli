@@ -9,10 +9,13 @@
 
 ## 🚀 Key Features
 
--   **Parallel Processing:** Syncs multiple locales and translates keys in parallel for maximum speed.
+-   **Batch Translation:** Translates multiple keys in a single request, reducing network overhead by up to 98%.
+-   **Parallel Processing:** Syncs multiple locales in parallel for maximum speed.
+-   **Rate Limit Protection:** Intelligent "Cool Down" mechanism and exponential backoff to handle API limits gracefully.
 -   **Whitelist Protection:** Prevent specific brand names or technical terms from being translated.
 -   **Smart Placeholders:** Automatically protects `{variable}` and `<tag>` placeholders during translation.
--   **Beautiful UI:** Interactive progress bars and detailed summary tables powered by `rich`.
+-   **Clean UI Translations:** Automatically synchronizes punctuation (like trailing periods) to keep UI labels concise.
+-   **Beautiful UI:** Interactive progress bars, versioning, and total execution time reporting.
 -   **Pruning:** Automatically removes keys from target files that no longer exist in the source.
 
 ---
@@ -84,9 +87,10 @@ LangSync automatically searches for configuration in the following order:
 {
   "source": "messages/en-GB.json",
   "dir": "messages",
-  "max_workers_per_locale": 5,
-  "max_parallel_locales": 3,
-  "delay_between_requests": 0.2,
+  "max_parallel_locales": 8,
+  "batch_size": 40,
+  "delay_between_requests": 0.4,
+  "retry_count": 5,
   "whitelist": [
     "LangSync",
     "SwayWM",
