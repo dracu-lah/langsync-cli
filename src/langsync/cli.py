@@ -9,12 +9,37 @@ from rich.table import Table
 from rich.live import Live
 from rich.panel import Panel
 
+import threading
 from .translator import TranslationService, get_translator_code
 from .processor import LocaleProcessor
 from .config import load_config
 from . import __version__
 
 console = Console()
+
+def start_key_listener():
+    """Listens for Esc, Ctrl+X, or Ctrl+C to exit immediately."""
+    def _listener():
+        try:
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            if not os.isatty(fd):
+                return
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setcbreak(fd)
+                while True:
+                    char = sys.stdin.read(1)
+                    if char in ['\x1b', '\x18', '\x03']:  # Esc, Ctrl+X, Ctrl+C
+                        os._exit(0)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=_listener, daemon=True)
+    thread.start()
 
 def process_locale(locale, source_data, messages_dir, progress, main_task_id, config, rewrite=False):
     target_file = os.path.join(messages_dir, f"{locale}.json")
@@ -90,6 +115,7 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 @click.option('-r', '--rewrite', is_flag=True, help='Rewrite existing keys.')
 def main(source, dir, locales, config_file, rewrite):
     """Modern I18N sync tool with parallel translation."""
+    start_key_listener()
     start_time = time.time()
     
     # Load configuration
