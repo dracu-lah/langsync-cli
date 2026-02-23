@@ -5,13 +5,13 @@ class LocaleProcessor:
     def __init__(self, source_data):
         self.source_data = source_data
 
-    def get_missing_keys(self, target_data):
+    def get_missing_keys(self, target_data, rewrite=False):
         """Returns a list of tuples (path_list, value) for missing/empty keys."""
         missing = []
-        self._find_missing(self.source_data, target_data, [], missing)
+        self._find_keys(self.source_data, target_data, [], missing, rewrite)
         return missing
 
-    def _find_missing(self, source, target, path, missing):
+    def _find_keys(self, source, target, path, missing, rewrite):
         if not isinstance(source, dict):
             return
 
@@ -20,9 +20,9 @@ class LocaleProcessor:
             if isinstance(value, dict):
                 if key not in target or not isinstance(target[key], dict):
                     target[key] = {}
-                self._find_missing(value, target[key], current_path, missing)
+                self._find_keys(value, target[key], current_path, missing, rewrite)
             else:
-                if key not in target or not target[key]:
+                if rewrite or key not in target or not target[key]:
                     missing.append((current_path, value))
 
     @staticmethod

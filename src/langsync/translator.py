@@ -46,6 +46,9 @@ class TextProtector:
         restored_text = text
         # Sort markers by length descending to avoid partial replacements
         for marker, original in sorted(markers.items(), key=lambda x: len(x[0]), reverse=True):
+            if marker == '_meta':
+                continue
+                
             # Translator often adds spaces or changes case of markers
             # We try to be robust
             pattern = re.compile(re.escape(marker), re.IGNORECASE)

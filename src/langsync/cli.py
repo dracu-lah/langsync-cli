@@ -16,12 +16,12 @@ from . import __version__
 
 console = Console()
 
-def process_locale(locale, source_data, messages_dir, progress, main_task_id, config):
+def process_locale(locale, source_data, messages_dir, progress, main_task_id, config, rewrite=False):
     target_file = os.path.join(messages_dir, f"{locale}.json")
     target_data = LocaleProcessor.load_json(target_file)
     
     processor = LocaleProcessor(source_data)
-    missing_items = processor.get_missing_keys(target_data)
+    missing_items = processor.get_missing_keys(target_data, rewrite=rewrite)
     
     if not missing_items:
         progress.update(main_task_id, advance=1)
@@ -82,12 +82,13 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
     
     return locale, translated_count
 
-@click.command()
-@click.option('--source', help='Source JSON file.')
-@click.option('--dir', help='Directory containing locale files.')
-@click.option('--locales', help='Comma-separated list of locales to sync (optional).')
-@click.option('--config-file', help='Path to config JSON file.')
-def main(source, dir, locales, config_file):
+@click.command(context_settings=dict(help_option_names=['-h', '--help']))
+@click.option('-s', '--source', help='Source JSON file.')
+@click.option('-d', '--dir', help='Directory containing locale files.')
+@click.option('-l', '--locales', help='Comma-separated list of locales to sync (optional).')
+@click.option('-c', '--config-file', help='Path to config JSON file.')
+@click.option('-r', '--rewrite', is_flag=True, help='Rewrite existing keys.')
+def main(source, dir, locales, config_file, rewrite):
     """Modern I18N sync tool with parallel translation."""
     start_time = time.time()
     
@@ -97,6 +98,7 @@ def main(source, dir, locales, config_file):
     # Override config with CLI options if provided
     source = source or config.get('source')
     dir = dir or config.get('dir')
+    rewrite = rewrite or config.get('rewrite', False)
 
     # Enhanced Error Handling
     if not source:
@@ -162,7 +164,7 @@ def main(source, dir, locales, config_file):
         
         with ThreadPoolExecutor(max_workers=max_parallel_locales) as locale_executor:
             futures = [
-                locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config)
+                locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config, rewrite=rewrite)
                 for locale in target_locales
             ]
             
