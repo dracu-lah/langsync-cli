@@ -125,7 +125,6 @@ class TranslationService:
             # Check for rate limit indicators in the error message
             if "429" in str(e) or "Too Many Requests" in str(e):
                 raise Exception("RATE_LIMIT_HIT")
-            print(f"Batch translation error: {e}")
             return None # Signal failure to the caller for retry
 
 def get_translator_code(locale):
