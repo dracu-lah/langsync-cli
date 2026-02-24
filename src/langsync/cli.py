@@ -128,139 +128,137 @@ def main(source, dir, locales, config, rewrite):
         start_key_listener()
         start_time = time.time()
         
-        # ... rest of the setup ...
-    
-    # Load configuration
-    if not config:
-        local_exists = any(os.path.exists(os.path.join(os.getcwd(), name)) for name in LOCAL_CONFIG_NAMES)
-        if not local_exists:
-            if os.path.exists(GLOBAL_CONFIG_PATH):
-                try:
-                    with open(GLOBAL_CONFIG_PATH, 'r', encoding='utf-8') as f:
-                        global_content = f.read()
-                    
-                    console.print(Panel(
-                        JSON(global_content),
-                        title=f"[bold cyan]Global Configuration Found: {GLOBAL_CONFIG_PATH}[/bold cyan]",
-                        border_style="cyan"
-                    ))
-                    
-                    if click.confirm("Local config not found. Would you like to create 'langsync.json' here by copying the global config?", default=False):
-                        import json
-                        config_dict = json.loads(global_content)
-                        save_config('langsync.json', config_dict)
-                        console.print("[green]✓ Successfully created 'langsync.json' from global config.")
+        # Load configuration
+        if not config:
+            local_exists = any(os.path.exists(os.path.join(os.getcwd(), name)) for name in LOCAL_CONFIG_NAMES)
+            if not local_exists:
+                if os.path.exists(GLOBAL_CONFIG_PATH):
+                    try:
+                        with open(GLOBAL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                            global_content = f.read()
+                        
+                        console.print(Panel(
+                            JSON(global_content),
+                            title=f"[bold cyan]Global Configuration Found: {GLOBAL_CONFIG_PATH}[/bold cyan]",
+                            border_style="cyan"
+                        ))
+                        
+                        if click.confirm("Local config not found. Would you like to create 'langsync.json' here by copying the global config?", default=False):
+                            import json
+                            config_dict = json.loads(global_content)
+                            save_config('langsync.json', config_dict)
+                            console.print("[green]✓ Successfully created 'langsync.json' from global config.")
+                            console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
+                            sys.exit(0)
+                        else:
+                            console.print("[cyan]Proceeding with global configuration...[/cyan]")
+                    except Exception as e:
+                        console.print(f"[red]Error handling global config: {e}")
+                else:
+                    if click.confirm("No configuration file found. Would you like to create a default 'langsync.json'?", default=True):
+                        save_config('langsync.json', get_default_config())
+                        console.print("[green]✓ Successfully created default 'langsync.json'.")
                         console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
                         sys.exit(0)
                     else:
-                        console.print("[cyan]Proceeding with global configuration...[/cyan]")
-                except Exception as e:
-                    console.print(f"[red]Error handling global config: {e}")
-            else:
-                if click.confirm("No configuration file found. Would you like to create a default 'langsync.json'?", default=True):
-                    save_config('langsync.json', get_default_config())
-                    console.print("[green]✓ Successfully created default 'langsync.json'.")
-                    console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
-                    sys.exit(0)
-                else:
-                    console.print("[red]Error: Configuration is required to run langsync.")
-                    sys.exit(1)
+                        console.print("[red]Error: Configuration is required to run langsync.")
+                        sys.exit(1)
 
-    config_data, loaded_path = load_config(config)
-    
-    # Override config with CLI options if provided
-    source = source or config_data.get('source')
-    dir = dir or config_data.get('dir')
-    rewrite = rewrite or config_data.get('rewrite', False)
+        config_data, loaded_path = load_config(config)
+        
+        # Override config with CLI options if provided
+        source = source or config_data.get('source')
+        dir = dir or config_data.get('dir')
+        rewrite = rewrite or config_data.get('rewrite', False)
 
-    # Enhanced Error Handling
-    if not source:
-        console.print("[red]Error: No source file configured. Provide it via --source or langsync.json.")
-        sys.exit(1)
-    
-    if not os.path.exists(source):
-        console.print(f"[red]Error: Source file '{source}' not found. Please check your path.")
-        sys.exit(1)
-
-    if not dir:
-        console.print("[red]Error: No locale directory configured. Provide it via --dir or langsync.json.")
-        sys.exit(1)
-
-    if not os.path.exists(dir):
-        console.print(f"[red]Error: Directory '{dir}' not found. Please check your path.")
-        sys.exit(1)
-
-    try:
-        source_data = LocaleProcessor.load_json(source)
-    except Exception as e:
-        console.print(f"[red]Error reading source JSON file: {e}")
-        sys.exit(1)
-    
-    if locales:
-        target_locales = [l.strip() for l in locales.split(',')]
-    else:
-        try:
-            target_locales = [
-                f.split('.')[0] for f in os.listdir(dir) 
-                if f.endswith('.json') and f != os.path.basename(source)
-            ]
-        except Exception as e:
-            console.print(f"[red]Error reading directory '{dir}': {e}")
+        # Enhanced Error Handling
+        if not source:
+            console.print("[red]Error: No source file configured. Provide it via --source or langsync.json.")
+            sys.exit(1)
+        
+        if not os.path.exists(source):
+            console.print(f"[red]Error: Source file '{source}' not found. Please check your path.")
             sys.exit(1)
 
-    if not target_locales:
-        console.print(f"[yellow]Warning: No locale files found in '{dir}' to sync (excluding source).")
-        return
+        if not dir:
+            console.print("[red]Error: No locale directory configured. Provide it via --dir or langsync.json.")
+            sys.exit(1)
 
-    config_msg = f"Version: [bold magenta]{__version__}[/bold magenta]\nSource: [green]{source}[/green]\nLocales to sync: [yellow]{len(target_locales)}[/yellow]"
-    if loaded_path:
-        config_msg = f"Config: [cyan]{loaded_path}[/cyan]\n" + config_msg
+        if not os.path.exists(dir):
+            console.print(f"[red]Error: Directory '{dir}' not found. Please check your path.")
+            sys.exit(1)
 
-    console.print(Panel.fit(
-        f"[bold blue]LangSync Tool[/bold blue]\n" + config_msg,
-        title="Settings"
-    ))
-
-    results = []
-    
-    max_parallel_locales = config_data.get('max_parallel_locales', 3)
-    
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        main_task_id = progress.add_task("[bold green]Total Progress", total=len(target_locales))
+        try:
+            source_data = LocaleProcessor.load_json(source)
+        except Exception as e:
+            console.print(f"[red]Error reading source JSON file: {e}")
+            sys.exit(1)
         
-        with ThreadPoolExecutor(max_workers=max_parallel_locales) as locale_executor:
-            futures = [
-                locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config_data, rewrite=rewrite)
-                for locale in target_locales
-            ]
+        if locales:
+            target_locales = [l.strip() for l in locales.split(',')]
+        else:
+            try:
+                target_locales = [
+                    f.split('.')[0] for f in os.listdir(dir) 
+                    if f.endswith('.json') and f != os.path.basename(source)
+                ]
+            except Exception as e:
+                console.print(f"[red]Error reading directory '{dir}': {e}")
+                sys.exit(1)
+
+        if not target_locales:
+            console.print(f"[yellow]Warning: No locale files found in '{dir}' to sync (excluding source).")
+            return
+
+        config_msg = f"Version: [bold magenta]{__version__}[/bold magenta]\nSource: [green]{source}[/green]\nLocales to sync: [yellow]{len(target_locales)}[/yellow]"
+        if loaded_path:
+            config_msg = f"Config: [cyan]{loaded_path}[/cyan]\n" + config_msg
+
+        console.print(Panel.fit(
+            f"[bold blue]LangSync Tool[/bold blue]\n" + config_msg,
+            title="Settings"
+        ))
+
+        results = []
+        
+        max_parallel_locales = config_data.get('max_parallel_locales', 3)
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            main_task_id = progress.add_task("[bold green]Total Progress", total=len(target_locales))
             
-            for future in as_completed(futures):
-                results.append(future.result())
+            with ThreadPoolExecutor(max_workers=max_parallel_locales) as locale_executor:
+                futures = [
+                    locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config_data, rewrite=rewrite)
+                    for locale in target_locales
+                ]
+                
+                for future in as_completed(futures):
+                    results.append(future.result())
 
-    # Summary table
-    table = Table(title="Sync Summary")
-    table.add_column("Locale", style="cyan")
-    table.add_column("Status", style="green")
-    table.add_column("Translated Keys", justify="right")
+        # Summary table
+        table = Table(title="Sync Summary")
+        table.add_column("Locale", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Translated Keys", justify="right")
 
-    for locale, count in sorted(results):
-        status = "[green]Done[/green]" if count > 0 else "[white]Up to date[/white]"
-        table.add_row(locale, status, str(count))
+        for locale, count in sorted(results):
+            status = "[green]Done[/green]" if count > 0 else "[white]Up to date[/white]"
+            table.add_row(locale, status, str(count))
 
-    console.print(table)
+        console.print(table)
+        
+        total_time = time.time() - start_time
+        console.print(f"\n[bold green]✓[/bold green] Finished in [bold cyan]{total_time:.2f}s[/bold cyan]")
     
-    total_time = time.time() - start_time
-    console.print(f"\n[bold green]✓[/bold green] Finished in [bold cyan]{total_time:.2f}s[/bold cyan]")
-    
-except KeyboardInterrupt:
-    handle_sigint(None, None)
+    except KeyboardInterrupt:
+        handle_sigint(None, None)
 
 if __name__ == "__main__":
     main()
