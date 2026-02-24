@@ -19,7 +19,7 @@ from . import __version__
 console = Console()
 
 def start_key_listener():
-    """Listens for Esc, Ctrl+X, or Ctrl+C to exit immediately."""
+    """Listens for Esc or Ctrl+X to exit, and intercepts Ctrl+C."""
     def _listener():
         try:
             import termios
@@ -32,8 +32,10 @@ def start_key_listener():
                 tty.setcbreak(fd)
                 while True:
                     char = sys.stdin.read(1)
-                    if char in ['\x1b', '\x18', '\x03']:  # Esc, Ctrl+X, Ctrl+C
+                    if char in ['\x1b', '\x18']:  # Esc, Ctrl+X
                         os._exit(0)
+                    elif char == '\x03':  # Ctrl+C
+                        console.print("\n[bold yellow]! Use Ctrl+X or Esc to quit.[/bold yellow]")
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception:
