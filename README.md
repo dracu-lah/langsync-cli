@@ -22,7 +22,14 @@
 
 ## 📦 Installation
 
-### 1. Install `pipx` (Recommended)
+### ⚡ Quick Install (Recommended)
+You can install LangSync globally with a single command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/dracu-lah/langsync-cli/main/install.sh | bash
+```
+
+### 1. Install `pipx` (Alternative)
 `pipx` is the best way to install Python CLI tools in isolated environments.
 
 | OS / Distro | Command |
@@ -40,8 +47,8 @@ Once `pipx` is ready, install LangSync directly from the source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/youruser/langsync.git
-cd langsync
+git clone https://github.com/dracu-lah/langsync-cli.git
+cd langsync-cli
 
 # Install as a global CLI tool
 pipx install .
