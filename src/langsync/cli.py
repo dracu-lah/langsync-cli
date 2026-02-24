@@ -2,6 +2,7 @@ import os
 import sys
 import click
 import time
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
@@ -18,8 +19,15 @@ from . import __version__
 
 console = Console()
 
+def handle_sigint(signum, frame):
+    """Handles Ctrl+C by showing an instruction instead of exiting."""
+    console.print("\n[bold yellow]! Use Ctrl+X or Esc to quit.[/bold yellow]")
+
 def start_key_listener():
-    """Listens for Esc or Ctrl+X to exit, and intercepts Ctrl+C."""
+    """Listens for Esc or Ctrl+X to exit."""
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, handle_sigint)
+
     def _listener():
         try:
             import termios
@@ -34,8 +42,6 @@ def start_key_listener():
                     char = sys.stdin.read(1)
                     if char in ['\x1b', '\x18']:  # Esc, Ctrl+X
                         os._exit(0)
-                    elif char == '\x03':  # Ctrl+C
-                        console.print("\n[bold yellow]! Use Ctrl+X or Esc to quit.[/bold yellow]")
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception:
@@ -118,8 +124,11 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 @click.option('-r', '--rewrite', is_flag=True, help='Rewrite existing keys.')
 def main(source, dir, locales, config, rewrite):
     """Modern I18N sync tool with parallel translation."""
-    start_key_listener()
-    start_time = time.time()
+    try:
+        start_key_listener()
+        start_time = time.time()
+        
+        # ... rest of the setup ...
     
     # Load configuration
     if not config:
@@ -249,6 +258,9 @@ def main(source, dir, locales, config, rewrite):
     
     total_time = time.time() - start_time
     console.print(f"\n[bold green]✓[/bold green] Finished in [bold cyan]{total_time:.2f}s[/bold cyan]")
+    
+except KeyboardInterrupt:
+    handle_sigint(None, None)
 
 if __name__ == "__main__":
     main()
