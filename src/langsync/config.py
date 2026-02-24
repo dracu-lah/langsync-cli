@@ -2,6 +2,10 @@ import re
 import os
 import json
 
+from rich.console import Console
+
+console = Console()
+
 # Whitelist of terms that should not be translated
 WHITELIST = [
     "MilesOrCash",
@@ -118,25 +122,25 @@ def load_config(config_path=None):
                                     # Merge whitelists and remove duplicates
                                     config['whitelist'] = list(set(WHITELIST + value))
                                 else:
-                                    print(f"Warning: 'whitelist' in {path} must be a list. Ignoring.")
+                                    console.print(f"[yellow]Warning: 'whitelist' in {path} must be a list. Ignoring.[/yellow]")
                             elif key in ['max_workers_per_locale', 'max_parallel_locales']:
                                 if isinstance(value, int) and value > 0:
                                     config[key] = value
                                 else:
-                                    print(f"Warning: '{key}' in {path} must be a positive integer. Ignoring.")
+                                    console.print(f"[yellow]Warning: '{key}' in {path} must be a positive integer. Ignoring.[/yellow]")
                             elif key == 'delay_between_requests':
                                 if isinstance(value, (int, float)) and value >= 0:
                                     config[key] = float(value)
                                 else:
-                                    print(f"Warning: 'delay_between_requests' in {path} must be a non-negative number. Ignoring.")
+                                    console.print(f"[yellow]Warning: 'delay_between_requests' in {path} must be a non-negative number. Ignoring.[/yellow]")
                             else:
                                 config[key] = value
                     
                     loaded_path = path
                     break 
             except json.JSONDecodeError:
-                print(f"Error: {path} is not a valid JSON file.")
+                console.print(f"[red]Error: {path} is not a valid JSON file.[/red]")
             except Exception as e:
-                print(f"Error loading config from {path}: {e}")
+                console.print(f"[red]Error loading config from {path}: {e}[/red]")
 
     return config, loaded_path

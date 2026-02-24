@@ -19,12 +19,24 @@ from . import __version__
 
 console = Console()
 
+BANNER = """
+[bold cyan]
+   __                                           
+  / /  ___ _  ___  ___ _  ___  __ __  ___  ____ 
+ / /__/ _ `/ / _ \/ _ `/ (_-< / // / / _ \/ __/ 
+/____/\_,_/ /_//_/\_, / /___/ \_, / /_//_/\__/  
+                 /___/       /___/              
+[/bold cyan]
+[dim cyan]Modern I18N Synchronization Tool • v{}[/dim cyan]
+""".format(__version__)
+
 def handle_sigint(signum, frame):
-    """Handles Ctrl+C by showing an instruction instead of exiting."""
-    console.print("\n[bold yellow]! Use Ctrl+X or Esc to quit.[/bold yellow]")
+    """Gracefully handle Ctrl+C."""
+    console.print("\n[bold red]✖ Interrupted by user. Exiting...[/bold red]")
+    sys.exit(0)
 
 def start_key_listener():
-    """Listens for Esc or Ctrl+X to exit."""
+    """Listens for Esc or Ctrl+X to exit during processing."""
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, handle_sigint)
 
@@ -125,7 +137,7 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 def main(source, dir, locales, config, rewrite):
     """Modern I18N sync tool with parallel translation."""
     try:
-        start_key_listener()
+        console.print(BANNER)
         start_time = time.time()
         
         # Load configuration
@@ -144,6 +156,7 @@ def main(source, dir, locales, config, rewrite):
                         ))
                         
                         if click.confirm("Local config not found. Would you like to create 'langsync.json' here by copying the global config?", default=False):
+                            console.print("[green]➤ Selected: [bold]Yes[/bold][/green]")
                             import json
                             config_dict = json.loads(global_content)
                             save_config('langsync.json', config_dict)
@@ -151,16 +164,18 @@ def main(source, dir, locales, config, rewrite):
                             console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
                             sys.exit(0)
                         else:
-                            console.print("[cyan]Proceeding with global configuration...[/cyan]")
+                            console.print("[cyan]➤ Selected: [bold]No[/bold]. Proceeding with global configuration...[/cyan]")
                     except Exception as e:
                         console.print(f"[red]Error handling global config: {e}")
                 else:
                     if click.confirm("No configuration file found. Would you like to create a default 'langsync.json'?", default=True):
+                        console.print("[green]➤ Selected: [bold]Yes[/bold][/green]")
                         save_config('langsync.json', get_default_config())
                         console.print("[green]✓ Successfully created default 'langsync.json'.")
                         console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
                         sys.exit(0)
                     else:
+                        console.print("[red]➤ Selected: [bold]No[/bold][/red]")
                         console.print("[red]Error: Configuration is required to run langsync.")
                         sys.exit(1)
 
@@ -210,26 +225,35 @@ def main(source, dir, locales, config, rewrite):
             console.print(f"[yellow]Warning: No locale files found in '{dir}' to sync (excluding source).")
             return
 
-        config_msg = f"Version: [bold magenta]{__version__}[/bold magenta]\nSource: [green]{source}[/green]\nLocales to sync: [yellow]{len(target_locales)}[/yellow]"
+        # Settings Summary
+        table = Table(box=None, padding=(0, 2))
+        table.add_column("Property", style="bold blue")
+        table.add_column("Value", style="white")
+
+        table.add_row("Version", f"[magenta]{__version__}[/magenta]")
         if loaded_path:
-            config_msg = f"Config: [cyan]{loaded_path}[/cyan]\n" + config_msg
+            table.add_row("Config", f"[cyan]{loaded_path}[/cyan]")
+        table.add_row("Source", f"[green]{source}[/green]")
+        table.add_row("Directory", f"[green]{dir}[/green]")
+        table.add_row("Locales", f"[yellow]{len(target_locales)}[/yellow] ({', '.join(target_locales[:5])}{'...' if len(target_locales) > 5 else ''})")
+        table.add_row("Rewrite Mode", "[bold red]Enabled[/bold red]" if rewrite else "[dim]Disabled[/dim]")
 
-        console.print(Panel.fit(
-            f"[bold blue]LangSync Tool[/bold blue]\n" + config_msg,
-            title="Settings"
-        ))
+        console.print(Panel(table, title="[bold white]Settings Summary[/bold white]", border_style="blue", expand=False))
 
-        results = []
+        # Start key listener now, after all initial input
+        start_key_listener()
         
+        results = []
         max_parallel_locales = config_data.get('max_parallel_locales', 3)
         
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
+            BarColumn(bar_width=None, pulse_style="cyan"),
             TaskProgressColumn(),
             TimeRemainingColumn(),
             console=console,
+            expand=True
         ) as progress:
             main_task_id = progress.add_task("[bold green]Total Progress", total=len(target_locales))
             
@@ -243,19 +267,27 @@ def main(source, dir, locales, config, rewrite):
                     results.append(future.result())
 
         # Summary table
-        table = Table(title="Sync Summary")
-        table.add_column("Locale", style="cyan")
-        table.add_column("Status", style="green")
-        table.add_column("Translated Keys", justify="right")
+        summary_table = Table(title="\nSync Statistics", box=None, header_style="bold underline white")
+        summary_table.add_column("Locale", style="cyan")
+        summary_table.add_column("Status", style="green")
+        summary_table.add_column("Translated", justify="right")
 
+        total_translated = 0
         for locale, count in sorted(results):
-            status = "[green]Done[/green]" if count > 0 else "[white]Up to date[/white]"
-            table.add_row(locale, status, str(count))
+            status = "[green]Done[/green]" if count > 0 else "[dim white]Up to date[/dim white]"
+            summary_table.add_row(locale, status, f"[bold]{count}[/bold]")
+            total_translated += count
 
-        console.print(table)
+        console.print(summary_table)
         
         total_time = time.time() - start_time
-        console.print(f"\n[bold green]✓[/bold green] Finished in [bold cyan]{total_time:.2f}s[/bold cyan]")
+        console.print("\n" + Panel(
+            f"[bold green]✓ Sync Completed Successfully![/bold green]\n"
+            f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
+            f"[dim]Total translated keys:[/dim] [bold magenta]{total_translated}[/bold magenta]",
+            border_style="green",
+            expand=False
+        ))
     
     except KeyboardInterrupt:
         handle_sigint(None, None)

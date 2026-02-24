@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langsync"
-version = "0.3.0"
+version = "0.4.0"
 description = "A modern I18N sync tool with parallel translation."
 readme = "README.md"
 requires-python = ">=3.7"
