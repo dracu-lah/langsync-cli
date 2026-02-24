@@ -60,16 +60,12 @@ RETRY_COUNT = 3
 # File settings
 DEFAULT_SOURCE = 'messages/en-GB.json'
 DEFAULT_DIR = 'messages'
+GLOBAL_CONFIG_PATH = os.path.expanduser('~/.langsync.json')
+LOCAL_CONFIG_NAMES = ['langsync.json', '.langsync.json']
 
-def load_config(config_path=None):
-    """
-    Load configuration from a file.
-    Order of preference:
-    1. config_path (if provided)
-    2. langsync.json or .langsync.json in CWD
-    3. ~/.langsync.json
-    """
-    config = {
+def get_default_config():
+    """Returns the default configuration dictionary."""
+    return {
         'source': DEFAULT_SOURCE,
         'dir': DEFAULT_DIR,
         'max_workers_per_locale': MAX_WORKERS_PER_LOCALE,
@@ -80,15 +76,32 @@ def load_config(config_path=None):
         'whitelist': WHITELIST
     }
 
+def save_config(path, config_dict):
+    """Saves a configuration dictionary to a JSON file."""
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(config_dict, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+def load_config(config_path=None):
+    """
+    Load configuration from a file.
+    Order of preference:
+    1. config_path (if provided)
+    2. langsync.json or .langsync.json in CWD
+    3. ~/.langsync.json
+    """
+    config = get_default_config()
+
     search_paths = []
     if config_path:
         search_paths.append(config_path)
     
     # Check for both langsync.json and .langsync.json in CWD
-    search_paths.append(os.path.join(os.getcwd(), 'langsync.json'))
-    search_paths.append(os.path.join(os.getcwd(), '.langsync.json'))
+    for name in LOCAL_CONFIG_NAMES:
+        search_paths.append(os.path.join(os.getcwd(), name))
+    
     # Global fallback
-    search_paths.append(os.path.expanduser('~/.langsync.json'))
+    search_paths.append(GLOBAL_CONFIG_PATH)
 
     loaded_path = None
     for path in search_paths:

@@ -8,11 +8,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 from rich.live import Live
 from rich.panel import Panel
+from rich.json import JSON
 
 import threading
 from .translator import TranslationService, get_translator_code
 from .processor import LocaleProcessor
-from .config import load_config
+from .config import load_config, GLOBAL_CONFIG_PATH, LOCAL_CONFIG_NAMES, get_default_config, save_config
 from . import __version__
 
 console = Console()
@@ -111,20 +112,55 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 @click.option('-s', '--source', help='Source JSON file.')
 @click.option('-d', '--dir', help='Directory containing locale files.')
 @click.option('-l', '--locales', help='Comma-separated list of locales to sync (optional).')
-@click.option('-c', '--config-file', help='Path to config JSON file.')
+@click.option('-c', '--config', help='Path to config JSON file.')
 @click.option('-r', '--rewrite', is_flag=True, help='Rewrite existing keys.')
-def main(source, dir, locales, config_file, rewrite):
+def main(source, dir, locales, config, rewrite):
     """Modern I18N sync tool with parallel translation."""
     start_key_listener()
     start_time = time.time()
     
     # Load configuration
-    config, loaded_path = load_config(config_file)
+    if not config:
+        local_exists = any(os.path.exists(os.path.join(os.getcwd(), name)) for name in LOCAL_CONFIG_NAMES)
+        if not local_exists:
+            if os.path.exists(GLOBAL_CONFIG_PATH):
+                try:
+                    with open(GLOBAL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                        global_content = f.read()
+                    
+                    console.print(Panel(
+                        JSON(global_content),
+                        title=f"[bold cyan]Global Configuration Found: {GLOBAL_CONFIG_PATH}[/bold cyan]",
+                        border_style="cyan"
+                    ))
+                    
+                    if click.confirm("Local config not found. Would you like to create 'langsync.json' here by copying the global config?", default=False):
+                        import json
+                        config_dict = json.loads(global_content)
+                        save_config('langsync.json', config_dict)
+                        console.print("[green]✓ Successfully created 'langsync.json' from global config.")
+                        console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
+                        sys.exit(0)
+                    else:
+                        console.print("[cyan]Proceeding with global configuration...[/cyan]")
+                except Exception as e:
+                    console.print(f"[red]Error handling global config: {e}")
+            else:
+                if click.confirm("No configuration file found. Would you like to create a default 'langsync.json'?", default=True):
+                    save_config('langsync.json', get_default_config())
+                    console.print("[green]✓ Successfully created default 'langsync.json'.")
+                    console.print("[yellow]! Please update the paths and values in 'langsync.json' and run langsync again.")
+                    sys.exit(0)
+                else:
+                    console.print("[red]Error: Configuration is required to run langsync.")
+                    sys.exit(1)
+
+    config_data, loaded_path = load_config(config)
     
     # Override config with CLI options if provided
-    source = source or config.get('source')
-    dir = dir or config.get('dir')
-    rewrite = rewrite or config.get('rewrite', False)
+    source = source or config_data.get('source')
+    dir = dir or config_data.get('dir')
+    rewrite = rewrite or config_data.get('rewrite', False)
 
     # Enhanced Error Handling
     if not source:
@@ -176,7 +212,7 @@ def main(source, dir, locales, config_file, rewrite):
 
     results = []
     
-    max_parallel_locales = config.get('max_parallel_locales', 3)
+    max_parallel_locales = config_data.get('max_parallel_locales', 3)
     
     with Progress(
         SpinnerColumn(),
@@ -190,7 +226,7 @@ def main(source, dir, locales, config_file, rewrite):
         
         with ThreadPoolExecutor(max_workers=max_parallel_locales) as locale_executor:
             futures = [
-                locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config, rewrite=rewrite)
+                locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config_data, rewrite=rewrite)
                 for locale in target_locales
             ]
             
