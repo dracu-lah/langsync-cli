@@ -1,167 +1,85 @@
 # 🌍 LangSync
 
-**LangSync** (Language Sync) is a high-performance I18N synchronization tool with parallel translation support. It keeps your translation files (JSON) perfectly in sync using a single source file as the "Source of Truth."
+**LangSync** is a high-performance, parallel I18N synchronization engine. It keeps your translation files perfectly in sync using a single source file as the "Source of Truth," leveraging batch translation to reduce network overhead by up to 98%.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.4.0-magenta.svg)](pyproject.toml)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
 ---
 
-## 🚀 Key Features
+## ⚡ Quick Start
 
--   **Batch Translation:** Translates multiple keys in a single request, reducing network overhead by up to 98%.
--   **Parallel Processing:** Syncs multiple locales in parallel for maximum speed.
--   **Rate Limit Protection:** Intelligent "Cool Down" mechanism and exponential backoff to handle API limits gracefully.
--   **Whitelist Protection:** Prevent specific brand names or technical terms from being translated.
--   **Smart Placeholders:** Automatically protects `{variable}` and `<tag>` placeholders during translation.
--   **Clean UI Translations:** Automatically synchronizes punctuation (like trailing periods) to keep UI labels concise.
--   **Beautiful UI:** Interactive progress bars, versioning, and total execution time reporting.
--   **Pruning:** Automatically removes keys from target files that no longer exist in the source.
+Install LangSync globally with a single command:
+
+```bash
+curl -sSL langsync.nevil.dev | bash
+```
 
 ---
 
-## 📦 Installation
+## ✨ Key Features
 
-### ⚡ Quick Install (Recommended)
-You can install LangSync globally with a single command:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/dracu-lah/langsync-cli/main/install.sh | bash
-```
-
-### 1. Install `pipx` (Alternative)
-`pipx` is the best way to install Python CLI tools in isolated environments.
-
-| OS / Distro | Command |
-| :--- | :--- |
-| **Arch Linux** | `sudo pacman -S python-pipx` |
-| **Ubuntu / Debian** | `sudo apt install pipx` |
-| **macOS (Homebrew)** | `brew install pipx` |
-| **Fedora** | `sudo dnf install pipx` |
-| **Windows** | `pip install pipx` |
-
-> **Note:** After installing `pipx`, run `pipx ensurepath` and restart your terminal.
-
-### 2. Install LangSync
-Once `pipx` is ready, install LangSync directly from the source:
-
-```bash
-# Clone the repository
-git clone https://github.com/dracu-lah/langsync-cli.git
-cd langsync-cli
-
-# Install as a global CLI tool
-pipx install .
-```
+-   **🚀 Parallel Execution:** Syncs multiple locales simultaneously using optimized thread pooling.
+-   **📦 Batch Translation:** Groups keys into single requests, drastically reducing translation time and API calls.
+-   **🛡️ Smart Protection:** Automatically detects and protects `{variable}` and `<tag>` placeholders.
+-   **📝 Whitelist Support:** Keep brand names and technical terms (e.g., "SwayWM", "Lascade") untouched.
+-   **📉 Rate Limit Resilience:** Intelligent "Cool Down" mechanism with exponential backoff for API stability.
+-   **✨ UI-Aware:** Synchronizes punctuation (like trailing periods) to maintain professional UI consistency.
+-   **🧹 Automatic Pruning:** Cleans up stale keys in target files that no longer exist in the source.
 
 ---
 
 ## 🛠 Usage
 
-### Basic Sync
-Run LangSync in your project root. By default, it looks for `messages/en-GB.json`.
+Run LangSync in your project root. It automatically detects your configuration.
 
 ```bash
+# Basic sync (using defaults)
 langsync
-```
 
-### Advanced CLI Options
-Customize the sync process with flags:
-
-```bash
-# Sync specific locales only
+# Sync specific locales
 langsync --locales es-ES,fr-FR
 
-# Specify a different source and target directory
-langsync --source i18n/main.json --dir i18n/locales/
-
-# Use a custom configuration file
-langsync --config-file project-config.json
+# Force rewrite existing translations
+langsync --rewrite
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-LangSync automatically searches for configuration in the following order:
-1.  `langsync.json` (Local)
-2.  `.langsync.json` (Local Hidden)
-3.  `~/.langsync.json` (Global)
-
-### Example `langsync.json`
+LangSync searches for configuration in: `langsync.json`, `.langsync.json`, or `~/.langsync.json`.
 
 ```json
 {
   "source": "messages/en-GB.json",
   "dir": "messages",
-  "max_parallel_locales": 8,
-  "batch_size": 40,
-  "delay_between_requests": 0.4,
-  "retry_count": 5,
-  "whitelist": [
-    "LangSync",
-    "SwayWM",
-    "Arch Linux"
-  ]
+  "max_parallel_locales": 5,
+  "batch_size": 25,
+  "whitelist": ["MyBrand", "ProMode"]
 }
 ```
 
 ---
 
-## 🧑‍💻 Development Setup
-
-If you want to contribute or run from source without installing globally:
+## 🧑‍💻 Development
 
 ```bash
 # Setup environment
 pipenv install
-
-# Install in editable mode
 pipenv run pip install -e .
 
-# Run the dev version
-pipenv run langsync
+# Run tests
+pipenv run pytest
 ```
 
 ---
 
-## 📂 Project Structure
+## 📜 Versioning & Contributions
 
-```text
-langsync/
-├── pyproject.toml       # Build system & CLI entry points
-├── langsync.json        # Configuration (Optional)
-└── src/
-    └── langsync/        # Main Package
-        ├── cli.py       # Command Line Interface
-        ├── config.py    # Config & Whitelist Management
-        ├── processor.py # JSON Logic & Pruning
-        └── translator.py# Translation Engine & Protection
-```
+This project follows **SemVer**.
+- **Source of Truth:** `pyproject.toml`
+- **Sync:** `src/langsync/__init__.py` must match `pyproject.toml`.
 
----
-
-## 📌 Versioning Policy
-
-This project follows [Semantic Versioning (SemVer)](https://semver.org/).
-
--   **Source of Truth:** The version defined in `pyproject.toml` is the source of truth.
--   **Synchronization:** Whenever `pyproject.toml` is updated, the `__version__` variable in `src/langsync/__init__.py` must be updated to match.
--   **Bumping:** 
-    -   **Patch:** Bug fixes and minor tweaks.
-    -   **Minor:** New features that are backwards compatible.
-    -   **Major:** Breaking changes.
-
----
-
-## 📜 License
-
-**MIT License**
-
-Copyright (c) 2026
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Made with ❤️ for the I18N community.
