@@ -134,6 +134,19 @@ langsync/
 
 ---
 
+## 📌 Versioning Policy
+
+This project follows [Semantic Versioning (SemVer)](https://semver.org/).
+
+-   **Source of Truth:** The version defined in `pyproject.toml` is the source of truth.
+-   **Synchronization:** Whenever `pyproject.toml` is updated, the `__version__` variable in `src/langsync/__init__.py` must be updated to match.
+-   **Bumping:** 
+    -   **Patch:** Bug fixes and minor tweaks.
+    -   **Minor:** New features that are backwards compatible.
+    -   **Major:** Breaking changes.
+
+---
+
 ## 📜 License
 
 **MIT License**
