@@ -8,10 +8,10 @@ echo "Installing LangSync..."
 
 if command -v pipx >/dev/null 2>&1; then
     echo "Using pipx to install globally..."
-    pipx install git+https://github.com/dracu-lah/langsync-cli.git
+    pipx install --force git+https://github.com/dracu-lah/langsync-cli.git
 elif command -v pip >/dev/null 2>&1; then
     echo "Using pip to install globally..."
-    pip install --user git+https://github.com/dracu-lah/langsync-cli.git
+    pip install --user --upgrade git+https://github.com/dracu-lah/langsync-cli.git
 else
     echo "Error: Neither pipx nor pip is installed. Please install Python and pip first."
     exit 1
