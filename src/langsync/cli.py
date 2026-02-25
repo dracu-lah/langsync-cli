@@ -19,17 +19,6 @@ from . import __version__
 
 console = Console()
 
-BANNER = """
-[bold cyan]
-   __                                           
-  / /  ___ _  ___  ___ _  ___  __ __  ___  ____ 
- / /__/ _ `/ / _ \/ _ `/ (_-< / // / / _ \/ __/ 
-/____/\_,_/ /_//_/\_, / /___/ \_, / /_//_/\__/  
-                 /___/       /___/              
-[/bold cyan]
-[dim cyan]Modern I18N Synchronization Tool • v{}[/dim cyan]
-""".format(__version__)
-
 def handle_sigint(signum, frame):
     """Gracefully handle Ctrl+C."""
     console.print("\n[bold red]✖ Interrupted by user. Exiting...[/bold red]")
@@ -137,7 +126,6 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 def main(source, dir, locales, config, rewrite):
     """Modern I18N sync tool with parallel translation."""
     try:
-        console.print(BANNER)
         start_time = time.time()
         
         # Load configuration
@@ -281,7 +269,8 @@ def main(source, dir, locales, config, rewrite):
         console.print(summary_table)
         
         total_time = time.time() - start_time
-        console.print("\n" + Panel(
+        console.print()
+        console.print(Panel(
             f"[bold green]✓ Sync Completed Successfully![/bold green]\n"
             f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
             f"[dim]Total translated keys:[/dim] [bold magenta]{total_translated}[/bold magenta]",
