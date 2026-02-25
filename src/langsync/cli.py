@@ -11,7 +11,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.json import JSON
 
-import threading
 from .translator import TranslationService, get_translator_code
 from .processor import LocaleProcessor
 from .config import load_config, GLOBAL_CONFIG_PATH, LOCAL_CONFIG_NAMES, get_default_config, save_config
@@ -24,34 +23,7 @@ def handle_sigint(signum, frame):
     console.print("\n[bold red]✖ Interrupted by user. Exiting...[/bold red]")
     sys.exit(0)
 
-def start_key_listener():
-    """Listens for Esc or Ctrl+X to exit during processing."""
-    # Set up signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, handle_sigint)
-
-    def _listener():
-        try:
-            import termios
-            import tty
-            fd = sys.stdin.fileno()
-            if not os.isatty(fd):
-                return
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setcbreak(fd)
-                while True:
-                    char = sys.stdin.read(1)
-                    if char in ['\x1b', '\x18']:  # Esc, Ctrl+X
-                        os._exit(0)
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        except Exception:
-            pass
-
-    thread = threading.Thread(target=_listener, daemon=True)
-    thread.start()
-
-def process_locale(locale, source_data, messages_dir, progress, main_task_id, config, rewrite=False):
+def process_locale(locale, source_data, messages_dir, progress, main_task_id, config, rewrite=False, dry_run=False, verbose=False):
     target_file = os.path.join(messages_dir, f"{locale}.json")
     target_data = LocaleProcessor.load_json(target_file)
     
@@ -61,9 +33,17 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
     if not missing_items:
         progress.update(main_task_id, advance=1)
         # Still prune extra keys
-        LocaleProcessor.prune_extra_keys(source_data, target_data)
-        LocaleProcessor.save_json(target_file, target_data)
+        if not dry_run:
+            LocaleProcessor.prune_extra_keys(source_data, target_data)
+            LocaleProcessor.save_json(target_file, target_data)
         return locale, 0
+
+    if dry_run:
+        if verbose:
+            for path, val in missing_items:
+                progress.console.print(rf"[dim]\[{locale}][/dim] [yellow]Pending:[/yellow] [blue]{'.'.join(map(str, path))}[/blue] -> [italic]{val}[/italic]")
+        progress.update(main_task_id, advance=1)
+        return locale, len(missing_items)
 
     lang_code = get_translator_code(locale)
     translator_service = TranslationService(target_lang=lang_code, whitelist=config.get('whitelist'))
@@ -104,6 +84,8 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
             for path, trans_val in zip(paths, translated_values):
                 LocaleProcessor.set_value_by_path(target_data, path, trans_val)
                 translated_count += 1
+                if verbose:
+                    progress.console.print(rf"[dim]\[{locale}][/dim] Translated [blue]{'.'.join(map(str, path))}[/blue] -> [italic]{trans_val}[/italic]")
                 progress.update(locale_task_id, advance=1)
         else:
             # If batch failed, skip this batch to avoid blocking
@@ -123,8 +105,14 @@ def process_locale(locale, source_data, messages_dir, progress, main_task_id, co
 @click.option('-l', '--locales', help='Comma-separated list of locales to sync (optional).')
 @click.option('-c', '--config', help='Path to config JSON file.')
 @click.option('-r', '--rewrite', is_flag=True, help='Rewrite existing keys.')
-def main(source, dir, locales, config, rewrite):
+@click.option('--dry-run', is_flag=True, help='Show what would be translated without making changes.')
+@click.option('-v', '--verbose', is_flag=True, help='Enable detailed output during translation.')
+@click.version_option(__version__)
+def main(source, dir, locales, config, rewrite, dry_run, verbose):
     """Modern I18N sync tool with parallel translation."""
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, handle_sigint)
+
     try:
         start_time = time.time()
         
@@ -224,12 +212,15 @@ def main(source, dir, locales, config, rewrite):
         table.add_row("Source", f"[green]{source}[/green]")
         table.add_row("Directory", f"[green]{dir}[/green]")
         table.add_row("Locales", f"[yellow]{len(target_locales)}[/yellow] ({', '.join(target_locales[:5])}{'...' if len(target_locales) > 5 else ''})")
-        table.add_row("Rewrite Mode", "[bold red]Enabled[/bold red]" if rewrite else "[dim]Disabled[/dim]")
+        
+        status_flags = []
+        if rewrite: status_flags.append("[bold red]Rewrite[/bold red]")
+        if dry_run: status_flags.append("[bold yellow]Dry-Run[/bold yellow]")
+        if verbose: status_flags.append("[bold cyan]Verbose[/bold cyan]")
+        
+        table.add_row("Mode", " + ".join(status_flags) if status_flags else "[dim]Standard[/dim]")
 
         console.print(Panel(table, title="[bold white]Settings Summary[/bold white]", border_style="blue", expand=False))
-
-        # Start key listener now, after all initial input
-        start_key_listener()
         
         results = []
         max_parallel_locales = config_data.get('max_parallel_locales', 3)
@@ -247,7 +238,7 @@ def main(source, dir, locales, config, rewrite):
             
             with ThreadPoolExecutor(max_workers=max_parallel_locales) as locale_executor:
                 futures = [
-                    locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config_data, rewrite=rewrite)
+                    locale_executor.submit(process_locale, locale, source_data, dir, progress, main_task_id, config_data, rewrite=rewrite, dry_run=dry_run, verbose=verbose)
                     for locale in target_locales
                 ]
                 
@@ -255,28 +246,43 @@ def main(source, dir, locales, config, rewrite):
                     results.append(future.result())
 
         # Summary table
-        summary_table = Table(title="\nSync Statistics", box=None, header_style="bold underline white")
+        summary_title = "\n[bold yellow]Dry Run Statistics[/bold yellow]" if dry_run else "\nSync Statistics"
+        summary_table = Table(title=summary_title, box=None, header_style="bold underline white")
         summary_table.add_column("Locale", style="cyan")
         summary_table.add_column("Status", style="green")
-        summary_table.add_column("Translated", justify="right")
+        summary_table.add_column("Translated" if not dry_run else "Missing Keys", justify="right")
 
-        total_translated = 0
+        total_count = 0
         for locale, count in sorted(results):
-            status = "[green]Done[/green]" if count > 0 else "[dim white]Up to date[/dim white]"
+            if dry_run:
+                status = "[yellow]Pending[/yellow]" if count > 0 else "[dim white]Up to date[/dim white]"
+            else:
+                status = "[green]Done[/green]" if count > 0 else "[dim white]Up to date[/dim white]"
             summary_table.add_row(locale, status, f"[bold]{count}[/bold]")
-            total_translated += count
+            total_count += count
 
         console.print(summary_table)
         
         total_time = time.time() - start_time
         console.print()
-        console.print(Panel(
-            f"[bold green]✓ Sync Completed Successfully![/bold green]\n"
-            f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
-            f"[dim]Total translated keys:[/dim] [bold magenta]{total_translated}[/bold magenta]",
-            border_style="green",
-            expand=False
-        ))
+        
+        if dry_run:
+            footer_text = (
+                f"[bold yellow]⚠ Dry Run Completed![/bold yellow]\n"
+                f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
+                f"[dim]Total missing keys found:[/dim] [bold magenta]{total_count}[/bold magenta]\n"
+                f"[italic]No changes were made to your files.[/italic]"
+            )
+            border_style = "yellow"
+        else:
+            footer_text = (
+                f"[bold green]✓ Sync Completed Successfully![/bold green]\n"
+                f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
+                f"[dim]Total translated keys:[/dim] [bold magenta]{total_count}[/bold magenta]"
+            )
+            border_style = "green"
+
+        console.print(Panel(footer_text, border_style=border_style, expand=False))
     
     except KeyboardInterrupt:
         handle_sigint(None, None)

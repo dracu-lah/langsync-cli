@@ -11,4 +11,8 @@
     -   Use `0.1.X` for patches/fixes.
     -   Use `0.X.0` for new features.
     -   Use `X.0.0` for major releases/breaking changes.
--   **Current Task:** Since you just added several features (config discovery, sigint handling, etc.), you should bump the version now.
+
+## UI/UX Standards
+-   **Rich Integration:** Maintain the `rich` library for all console output. Use `Panel`, `Table`, and `Progress` to keep the UI modern and visually organized.
+-   **Bracket Escaping:** When using Rich to print strings that might contain brackets (like `[locale]`), always use raw strings with escaped brackets (e.g., `rf"\[{locale}]"`) to prevent Rich from misinterpreting them as style tags.
+-   **Standard Flags:** Ensure all new CLI commands or major updates support `--dry-run` and `--verbose` where applicable to provide a consistent user experience.

@@ -3,7 +3,7 @@
 **LangSync** is a high-performance, parallel I18N synchronization engine. It keeps your translation files perfectly in sync using a single source file as the "Source of Truth," leveraging batch translation to reduce network overhead by up to 98%.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-magenta.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.5.0-magenta.svg)](pyproject.toml)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
 ---
