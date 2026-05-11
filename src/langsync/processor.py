@@ -6,12 +6,17 @@ class LocaleProcessor:
         self.source_data = source_data
 
     def get_missing_keys(self, target_data, rewrite=False):
-        """Returns a list of tuples (path_list, value) for missing/empty keys."""
-        missing = []
-        self._find_keys(self.source_data, target_data, [], missing, rewrite)
-        return missing
+        """Returns (translatable, passthrough):
+          - translatable: list of (path, value) for non-empty string sources missing in target
+          - passthrough: list of (path, value) for non-string or empty sources missing in target
+            (these are copied as-is rather than sent to the translator)
+        """
+        translatable = []
+        passthrough = []
+        self._find_keys(self.source_data, target_data, [], translatable, passthrough, rewrite)
+        return translatable, passthrough
 
-    def _find_keys(self, source, target, path, missing, rewrite):
+    def _find_keys(self, source, target, path, translatable, passthrough, rewrite):
         if not isinstance(source, dict):
             return
 
@@ -20,10 +25,16 @@ class LocaleProcessor:
             if isinstance(value, dict):
                 if key not in target or not isinstance(target[key], dict):
                     target[key] = {}
-                self._find_keys(value, target[key], current_path, missing, rewrite)
+                self._find_keys(value, target[key], current_path, translatable, passthrough, rewrite)
             else:
-                if rewrite or key not in target or not target[key]:
-                    missing.append((current_path, value))
+                needs_fill = rewrite or key not in target or target[key] in (None, "")
+                if not needs_fill:
+                    continue
+
+                if isinstance(value, str) and value.strip():
+                    translatable.append((current_path, value))
+                else:
+                    passthrough.append((current_path, value))
 
     @staticmethod
     def set_value_by_path(data, path, value):

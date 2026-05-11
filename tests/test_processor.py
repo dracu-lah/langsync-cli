@@ -19,16 +19,34 @@ def test_get_missing_keys():
         }
     }
     processor = LocaleProcessor(source)
-    missing = processor.get_missing_keys(target)
-    
-    # Missing should be [(['key2', 'subkey2'], 'subvalue2'), (['key3'], "")]
-    # Note: key3 is present in source as "", and get_missing_keys check for `not target[key]`
-    # Let's verify the logic in _find_keys
-    # if rewrite or key not in target or not target[key]:
-    
-    assert (['key2', 'subkey2'], 'subvalue2') in missing
-    assert (['key3'], "") in missing
-    assert len(missing) == 2
+    translatable, passthrough = processor.get_missing_keys(target)
+
+    # Non-empty missing values go to `translatable` and are sent to the translator.
+    assert translatable == [(['key2', 'subkey2'], 'subvalue2')]
+
+    # Empty source values are copied as-is rather than sent to the translator,
+    # so the same key isn't re-translated to empty on every run.
+    assert passthrough == [(['key3'], "")]
+
+
+def test_get_missing_keys_skips_filled_targets():
+    source = {"a": "hello", "b": "world"}
+    target = {"a": "hola"}
+    processor = LocaleProcessor(source)
+    translatable, passthrough = processor.get_missing_keys(target)
+
+    assert translatable == [(["b"], "world")]
+    assert passthrough == []
+
+
+def test_get_missing_keys_rewrite_includes_all():
+    source = {"a": "hello", "b": ""}
+    target = {"a": "hola", "b": ""}
+    processor = LocaleProcessor(source)
+    translatable, passthrough = processor.get_missing_keys(target, rewrite=True)
+
+    assert translatable == [(["a"], "hello")]
+    assert passthrough == [(["b"], "")]
 
 def test_set_value_by_path():
     data = {}
