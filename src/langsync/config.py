@@ -77,7 +77,9 @@ def get_default_config():
         'delay_between_requests': DELAY_BETWEEN_REQUESTS,
         'batch_size': BATCH_SIZE,
         'retry_count': RETRY_COUNT,
-        'whitelist': WHITELIST
+        'whitelist': WHITELIST,
+        # Optional: override snapshot location. Defaults to <dir>/.langsync-state.json.
+        'state_file': None,
     }
 
 def save_config(path, config_dict):
