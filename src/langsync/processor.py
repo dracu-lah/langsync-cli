@@ -4,6 +4,33 @@ import os
 from .state import path_to_key, value_hash
 
 
+def _child(container, key):
+    """Read container[key] defensively, tolerating type/shape mismatches.
+
+    `key` is a dict key (str) or a list index (int). Returns None when the
+    container is the wrong type or the index/key is absent, so callers can treat
+    "target has no value here" uniformly.
+    """
+    if isinstance(key, bool):
+        return container.get(key) if isinstance(container, dict) else None
+    if isinstance(key, int):
+        if isinstance(container, list) and 0 <= key < len(container):
+            return container[key]
+        return None
+    return container.get(key) if isinstance(container, dict) else None
+
+
+def _assign(container, key, value):
+    """Write value into container[key], growing a list with None padding so an
+    out-of-order index assignment doesn't raise."""
+    if isinstance(key, int) and not isinstance(key, bool):
+        while len(container) <= key:
+            container.append(None)
+        container[key] = value
+    else:
+        container[key] = value
+
+
 class LocaleProcessor:
     def __init__(self, source_data):
         self.source_data = source_data
@@ -37,53 +64,76 @@ class LocaleProcessor:
         return result
 
     def _classify(self, source, target, path, snapshot_hashes, result, force_rewrite):
-        if not isinstance(source, dict):
+        # Recurse into BOTH dicts and (non-empty) lists so array elements are
+        # classified — and translated — element by element rather than copied
+        # verbatim. Empty containers fall through to the leaf branch so they are
+        # copied as-is and re-created in the target.
+        if isinstance(source, dict) and source:
+            for key, value in source.items():
+                self._classify(
+                    value, _child(target, key), path + [key],
+                    snapshot_hashes, result, force_rewrite,
+                )
             return
-        for key, value in source.items():
-            current_path = path + [key]
-            if isinstance(value, dict):
-                if key not in target or not isinstance(target[key], dict):
-                    target[key] = {}
-                self._classify(value, target[key], current_path, snapshot_hashes, result, force_rewrite)
-                continue
+        if isinstance(source, list) and source:
+            for i, value in enumerate(source):
+                self._classify(
+                    value, _child(target, i), path + [i],
+                    snapshot_hashes, result, force_rewrite,
+                )
+            return
 
-            is_translatable = isinstance(value, str) and value.strip()
-            target_has_value = (
-                isinstance(target, dict)
-                and key in target
-                and target[key] not in (None, "")
-                and not isinstance(target[key], dict)
-            )
+        # Leaf: a scalar, an empty string, or an empty container. `target` here
+        # is the corresponding target value (or None if absent / shape-mismatched).
+        # An empty path means the source root itself is an empty container — there
+        # is no key to classify, so emit nothing.
+        if not path:
+            return
+        value = source
+        current_path = path
+        is_translatable = isinstance(value, str) and value.strip()
+        target_has_value = (
+            target is not None
+            and target != ""
+            and not isinstance(target, (dict, list))
+        )
 
-            if force_rewrite:
-                bucket = "changed_translatable" if is_translatable else "changed_passthrough"
-                result[bucket].append((current_path, value))
-                continue
+        if force_rewrite:
+            bucket = "changed_translatable" if is_translatable else "changed_passthrough"
+            result[bucket].append((current_path, value))
+            return
 
-            if not target_has_value:
-                bucket = "missing_translatable" if is_translatable else "missing_passthrough"
-                result[bucket].append((current_path, value))
-                continue
+        if not target_has_value:
+            bucket = "missing_translatable" if is_translatable else "missing_passthrough"
+            result[bucket].append((current_path, value))
+            return
 
-            prior_hash = snapshot_hashes.get(path_to_key(current_path))
-            if prior_hash is not None and prior_hash != value_hash(value):
-                bucket = "changed_translatable" if is_translatable else "changed_passthrough"
-                result[bucket].append((current_path, value))
-            else:
-                result["unchanged"].append(current_path)
+        prior_hash = snapshot_hashes.get(path_to_key(current_path))
+        if prior_hash is not None and prior_hash != value_hash(value):
+            bucket = "changed_translatable" if is_translatable else "changed_passthrough"
+            result[bucket].append((current_path, value))
+        else:
+            result["unchanged"].append(current_path)
 
     def _collect_orphans(self, source, target, path, out):
-        if not isinstance(target, dict):
-            return
-        source_keys = source if isinstance(source, dict) else {}
-        for key, tval in target.items():
-            current_path = path + [key]
-            if key not in source_keys:
-                out.append(current_path)
-                continue
-            if isinstance(tval, dict):
-                child_source = source_keys[key] if isinstance(source_keys.get(key), dict) else {}
-                self._collect_orphans(child_source, tval, current_path, out)
+        # Orphans at any depth: dict keys the source dropped, and list elements
+        # past the source's array length. Recurse through both container types.
+        if isinstance(target, dict):
+            source_keys = source if isinstance(source, dict) else {}
+            for key, tval in target.items():
+                current_path = path + [key]
+                if key not in source_keys:
+                    out.append(current_path)
+                    continue
+                self._collect_orphans(source_keys[key], tval, current_path, out)
+        elif isinstance(target, list):
+            source_list = source if isinstance(source, list) else []
+            for i, tval in enumerate(target):
+                current_path = path + [i]
+                if i >= len(source_list):
+                    out.append(current_path)
+                    continue
+                self._collect_orphans(source_list[i], tval, current_path, out)
 
     def get_missing_keys(self, target_data, rewrite=False):
         """Legacy entrypoint. Returns (translatable, passthrough) for keys that
@@ -98,43 +148,66 @@ class LocaleProcessor:
 
     @staticmethod
     def set_value_by_path(data, path, value):
-        """Sets a value in a nested dictionary given a path list."""
+        """Set a value in a nested structure given a path list whose elements are
+        dict keys (str) or list indices (int).
+
+        Intermediate containers are created to match the next path element (a list
+        when the next step is an index, a dict otherwise) and coerced if the
+        existing value is the wrong type — this cleanly overwrites a stale value
+        left behind when a source key changes container type (array <-> object)."""
         current = data
         for i, key in enumerate(path):
             if i == len(path) - 1:
-                current[key] = value
-            else:
-                if key not in current or not isinstance(current[key], dict):
-                    current[key] = {}
-                current = current[key]
+                _assign(current, key, value)
+                return
+            next_key = path[i + 1]
+            want_list = isinstance(next_key, int) and not isinstance(next_key, bool)
+            child = _child(current, key)
+            if want_list and not isinstance(child, list):
+                child = []
+                _assign(current, key, child)
+            elif not want_list and not isinstance(child, dict):
+                child = {}
+                _assign(current, key, child)
+            current = child
 
     @staticmethod
     def remove_by_path(data, path):
-        """Delete the leaf at path. Empty parent dicts are left in place so
-        nested structure stays diff-stable."""
+        """Delete the leaf at path (dict key or list index). Empty parent
+        containers are left in place so nested structure stays diff-stable.
+
+        When pruning several sibling list indices, remove them highest-index
+        first so earlier deletions don't shift the ones still to come."""
         if not path:
             return
         current = data
         for key in path[:-1]:
-            if not isinstance(current, dict) or key not in current:
+            current = _child(current, key)
+            if current is None:
                 return
-            current = current[key]
-        if isinstance(current, dict) and path[-1] in current:
-            del current[path[-1]]
+        last = path[-1]
+        if isinstance(last, int) and not isinstance(last, bool):
+            if isinstance(current, list) and 0 <= last < len(current):
+                del current[last]
+        elif isinstance(current, dict) and last in current:
+            del current[last]
 
     @staticmethod
     def prune_extra_keys(source, target):
-        """Removes keys from target that are not in source."""
-        if not isinstance(source, dict) or not isinstance(target, dict):
-            return
-
-        keys_to_remove = [k for k in target if k not in source]
-        for k in keys_to_remove:
-            del target[k]
-
-        for k, v in source.items():
-            if k in target and isinstance(v, dict):
-                LocaleProcessor.prune_extra_keys(v, target[k])
+        """Recursively remove keys/elements from target that are absent in source,
+        for both dict keys and list indices."""
+        if isinstance(source, dict) and isinstance(target, dict):
+            for k in [k for k in target if k not in source]:
+                del target[k]
+            for k, v in source.items():
+                if k in target:
+                    LocaleProcessor.prune_extra_keys(v, target[k])
+        elif isinstance(source, list) and isinstance(target, list):
+            # Drop trailing elements the source no longer has, then recurse into
+            # the ones that remain.
+            del target[len(source):]
+            for i, v in enumerate(source):
+                LocaleProcessor.prune_extra_keys(v, target[i])
 
     @staticmethod
     def load_json(file_path):

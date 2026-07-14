@@ -77,7 +77,7 @@ class LocaleResult:
 
 
 def _format_path(path):
-    return ".".join(str(p) for p in path)
+    return path_to_key(path)
 
 
 def _translate_with_fallback(translator_service, batch, retry_count, delay, result, progress, locale_task_id, verbose):
@@ -258,9 +258,10 @@ def process_locale(
     for path, val in passthrough:
         LocaleProcessor.set_value_by_path(target_data, path, val)
 
-    # Optional orphan removal.
+    # Optional orphan removal. Remove deepest/highest paths first so deleting a
+    # list element never shifts a sibling index we still have to remove.
     if prune:
-        for path in orphan_paths:
+        for path in sorted(orphan_paths, reverse=True):
             LocaleProcessor.remove_by_path(target_data, path)
             result.pruned += 1
 

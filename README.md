@@ -3,7 +3,7 @@
 **LangSync** is a high-performance, parallel I18N synchronization engine. It keeps your translation files perfectly in sync using a single source file as the "Source of Truth," leveraging batch translation to reduce network overhead by up to 98%.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.0-magenta.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.7.0-magenta.svg)](pyproject.toml)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
 ---
@@ -23,6 +23,7 @@ curl -sSL langsync.nevil.dev | bash
 -   **🚀 Parallel Execution:** Syncs multiple locales simultaneously using optimized thread pooling.
 -   **📦 Batch Translation:** Groups keys into single requests, drastically reducing translation time and API calls.
 -   **🛡️ Smart Protection:** Automatically detects and protects `{variable}` and `<tag>` placeholders.
+-   **🧩 Deep Structure Support:** Recurses into arrays and nested objects — strings inside a list (FAQs, feature cards, bullet lists) are translated element by element, not copied verbatim. Drift is tracked per array element (`items[0].title`).
 -   **📝 Whitelist Support:** Keep brand names and technical terms (e.g., "SwayWM", "Lascade") untouched.
 -   **📉 Rate Limit Resilience:** Intelligent "Cool Down" mechanism with exponential backoff for API stability.
 -   **✨ UI-Aware:** Synchronizes punctuation (like trailing periods) to maintain professional UI consistency.

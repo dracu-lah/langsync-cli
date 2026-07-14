@@ -147,3 +147,101 @@ def test_remove_by_path_keeps_parent_dict():
     data = {"a": {"only": "x"}}
     LocaleProcessor.remove_by_path(data, ["a", "only"])
     assert data == {"a": {}}
+
+
+# --- Array translation (the core bug) --------------------------------------
+
+
+def test_classify_translates_strings_inside_arrays():
+    # Array elements — object leaves AND bare strings — must be classified as
+    # translatable, not copied verbatim.
+    source = {
+        "items": [{"title": "Legroom calculator"}, {"title": "Seat width"}],
+        "bullets": ["First", "Second"],
+    }
+    target = {}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+
+    translatable = {tuple(p): v for p, v in c["missing_translatable"]}
+    assert translatable == {
+        ("items", 0, "title"): "Legroom calculator",
+        ("items", 1, "title"): "Seat width",
+        ("bullets", 0): "First",
+        ("bullets", 1): "Second",
+    }
+
+
+def test_classify_array_non_string_leaves_are_passthrough():
+    source = {"arr": [1, True, None, "text"]}
+    c = LocaleProcessor(source).classify_keys({}, snapshot_hashes={})
+
+    passthrough = {tuple(p) for p, _ in c["missing_passthrough"]}
+    translatable = {tuple(p) for p, _ in c["missing_translatable"]}
+    assert passthrough == {("arr", 0), ("arr", 1), ("arr", 2)}
+    assert translatable == {("arr", 3)}
+
+
+def test_classify_array_element_drift_is_per_element():
+    # Editing one array element marks only THAT element changed, not the whole
+    # array — snapshot keys are per index.
+    source = {"faq": [{"q": "New question"}, {"q": "Same"}]}
+    target = {"faq": [{"q": "Alte Frage"}, {"q": "Gleich"}]}
+    snapshot = {
+        "faq[0].q": value_hash("Old question"),
+        "faq[1].q": value_hash("Same"),
+    }
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes=snapshot)
+
+    assert [tuple(p) for p, _ in c["changed_translatable"]] == [("faq", 0, "q")]
+    assert [tuple(p) for p in c["unchanged"]] == [("faq", 1, "q")]
+
+
+def test_set_value_by_path_builds_arrays():
+    data = {}
+    LocaleProcessor.set_value_by_path(data, ["items", 0, "title"], "Titel")
+    LocaleProcessor.set_value_by_path(data, ["items", 1, "title"], "Breite")
+    assert data == {"items": [{"title": "Titel"}, {"title": "Breite"}]}
+
+
+def test_set_value_by_path_coerces_on_retype():
+    # Source key changed object -> array: the stale object value must be
+    # overwritten with a fresh list rather than merged.
+    data = {"node": {"old": "stale"}}
+    LocaleProcessor.set_value_by_path(data, ["node", 0], "first")
+    assert data == {"node": ["first"]}
+
+
+def test_remove_by_path_deletes_list_element():
+    data = {"arr": ["a", "b", "c"]}
+    LocaleProcessor.remove_by_path(data, ["arr", 1])
+    assert data == {"arr": ["a", "c"]}
+
+
+def test_collect_orphans_flags_trailing_array_elements():
+    source = {"arr": ["a", "b"]}
+    target = {"arr": ["x", "y", "z", "w"]}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+
+    assert {tuple(p) for p in c["orphans"]} == {("arr", 2), ("arr", 3)}
+
+
+def test_prune_extra_keys_trims_arrays():
+    source = {"arr": ["a", "b"]}
+    target = {"arr": ["a", "b", "c", "d"]}
+    LocaleProcessor.prune_extra_keys(source, target)
+    assert target == {"arr": ["a", "b"]}
+
+
+def test_array_round_trip_translate_then_apply():
+    # End-to-end at the processor level: classify an array, then apply the
+    # translated + passthrough values and confirm the array reassembles in order.
+    source = {"faq": [{"q": "Question", "n": 1}, {"q": "Other"}]}
+    target = {}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+
+    for path, val in c["missing_passthrough"]:
+        LocaleProcessor.set_value_by_path(target, path, val)
+    for path, val in c["missing_translatable"]:
+        LocaleProcessor.set_value_by_path(target, path, f"<{val}>")
+
+    assert target == {"faq": [{"q": "<Question>", "n": 1}, {"q": "<Other>"}]}

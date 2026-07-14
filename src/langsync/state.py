@@ -25,8 +25,22 @@ STATE_FILENAME = ".langsync-state.json"
 
 
 def path_to_key(path):
-    """Join a path list into the dotted form used as a snapshot key."""
-    return ".".join(str(p) for p in path)
+    """Render a path list into the stable string form used as a snapshot key.
+
+    Dict keys are dotted (`a.b.c`); list indices are bracketed (`a.b[0].c`), so
+    every element of an array gets its own snapshot entry and the diff can track
+    per-element changes instead of treating the whole array as one opaque leaf.
+    """
+    parts = []
+    for p in path:
+        if isinstance(p, bool):
+            # bool is an int subclass — guard so a stray bool key isn't bracketed.
+            parts.append(("." if parts else "") + str(p))
+        elif isinstance(p, int):
+            parts.append(f"[{p}]")
+        else:
+            parts.append(("." if parts else "") + str(p))
+    return "".join(parts)
 
 
 def value_hash(value):
@@ -40,9 +54,15 @@ def compute_source_hashes(source_data):
     hashes = {}
 
     def walk(node, path):
-        if isinstance(node, dict):
+        # Non-empty containers recurse element by element; a list is NOT an
+        # opaque leaf. Empty containers (and all scalars) are hashed as leaves so
+        # an empty `[]`/`{}` still round-trips instead of vanishing.
+        if isinstance(node, dict) and node:
             for k, v in node.items():
                 walk(v, path + [k])
+        elif isinstance(node, list) and node:
+            for i, v in enumerate(node):
+                walk(v, path + [i])
         else:
             hashes[path_to_key(path)] = value_hash(node)
 

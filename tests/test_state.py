@@ -73,3 +73,27 @@ def test_default_state_path_is_inside_dir():
 
 def test_path_to_key_joins_with_dot():
     assert path_to_key(["a", "b", "c"]) == "a.b.c"
+
+
+def test_path_to_key_brackets_list_indices():
+    assert path_to_key(["items", 0, "title"]) == "items[0].title"
+    assert path_to_key(["a", 1, 2]) == "a[1][2]"
+
+
+def test_compute_source_hashes_walks_into_arrays():
+    # Array elements — strings and object leaves inside arrays — get their own
+    # snapshot entries instead of the whole array hashing as one opaque leaf.
+    source = {
+        "arr": [{"label": "Window seat"}, "plain"],
+        "faq": {"items": [{"question": "Q1"}]},
+    }
+    hashes = compute_source_hashes(source)
+
+    assert set(hashes.keys()) == {"arr[0].label", "arr[1]", "faq.items[0].question"}
+    assert hashes["arr[0].label"] == value_hash("Window seat")
+    assert hashes["arr[1]"] == value_hash("plain")
+
+
+def test_compute_source_hashes_keeps_empty_array_as_leaf():
+    hashes = compute_source_hashes({"empty": [], "filled": ["x"]})
+    assert set(hashes.keys()) == {"empty", "filled[0]"}
