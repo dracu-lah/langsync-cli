@@ -233,3 +233,24 @@ def test_restore_with_backslashes():
     text = r"Path {value} with \1 backslash"
     protected, markers = TextProtector.protect(text, whitelist=[])
     assert TextProtector.restore(protected, markers) == text
+
+
+def test_translate_batch_rejects_invalid_icu_looking_source(mocker):
+    service = _make_service(mocker)
+    service.translator.translate_batch.side_effect = lambda batch: [f"T({s})" for s in batch]
+    bad = "{count, plural, one {# item}}"  # missing mandatory 'other'
+    results = service.translate_batch([bad, "Fine."], delay=0)
+    assert results[0] is None
+    assert results[1] == "T(Fine.)"
+    # The bad string never reached the API.
+    sent = service.translator.translate_batch.call_args[0][0]
+    assert all("plural" not in s for s in sent)
+
+
+def test_translate_one_rejects_invalid_icu_looking_source(mocker):
+    from langsync.translator import TranslationError
+    service = _make_service(mocker)
+    with pytest.raises(TranslationError) as exc_info:
+        service.translate_one("{count, plural, one {# item}}", delay=0)
+    assert exc_info.value.kind == "icu"
+    service.translator.translate.assert_not_called()

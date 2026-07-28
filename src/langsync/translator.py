@@ -145,6 +145,13 @@ class TranslationService:
         parsed = self._structured(text)
         if parsed is not None:
             return self._translate_structured_one(text, parsed, delay)
+        if icu.looks_structured(text):
+            # Looks like a plural/select message but doesn't parse — the plain
+            # marker path would expose its reserved keywords to the API.
+            raise TranslationError(
+                "string looks like ICU MessageFormat but does not parse; "
+                "fix the source string", kind="icu",
+            )
 
         protected_text, markers = TextProtector.protect(text, self.whitelist)
         try:
@@ -216,11 +223,14 @@ class TranslationService:
 
         # Build one flat list of protected strings to send. Plain texts map to
         # a single entry; structured ICU texts map to one entry per span.
-        plans = []  # ("plain", flat_pos, markers) | ("icu", text, parsed, segments)
+        plans = []  # ("plain", flat_pos, markers) | ("icu", text, parsed, segments) | ("reject",)
         flat = []
 
         for text in texts:
             parsed = self._structured(text)
+            if parsed is None and icu.looks_structured(text):
+                plans.append(("reject",))
+                continue
             if parsed is not None:
                 segments = []
                 for idx, raw, _in_plural in parsed.translatable_spans():
@@ -260,6 +270,9 @@ class TranslationService:
 
         results = []
         for plan in plans:
+            if plan[0] == "reject":
+                results.append(None)
+                continue
             if plan[0] == "plain":
                 _, flat_pos, markers = plan
                 translated = translated_flat[flat_pos]

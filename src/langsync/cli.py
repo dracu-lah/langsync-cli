@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.json import JSON
 
+from . import icu
 from .translator import TranslationService, TranslationError, get_translator_code
 from .processor import LocaleProcessor
 from .config import load_config, GLOBAL_CONFIG_PATH, LOCAL_CONFIG_NAMES, get_default_config, save_config
@@ -42,7 +43,7 @@ class LocaleResult:
     __slots__ = (
         "locale", "translated", "copied", "failed", "pruned",
         "missing_count", "changed_count", "orphan_count", "unchanged_count",
-        "issues", "failed_paths",
+        "invalid_count", "issues", "failed_paths",
     )
 
     def __init__(self, locale):
@@ -55,6 +56,7 @@ class LocaleResult:
         self.changed_count = 0
         self.orphan_count = 0
         self.unchanged_count = 0
+        self.invalid_count = 0  # target strings with broken ICU (re-translated)
         self.issues = []  # list of (kind, message)
         self.failed_paths = set()  # dotted-path strings the run could not sync
 
@@ -216,19 +218,22 @@ def process_locale(
     missing_passthrough = classification["missing_passthrough"]
     changed_translatable = classification["changed_translatable"]
     changed_passthrough = classification["changed_passthrough"]
+    invalid_targets = classification["invalid_target"]
     unchanged_paths = classification["unchanged"]
     orphan_paths = classification["orphans"]
 
     # `--update-changed` narrows the run to drift-only; rewrite still wins.
+    # Broken ICU targets are always healed — they render as nothing as-is.
     if update_changed and not rewrite:
         missing_translatable = []
         missing_passthrough = []
 
-    translatable = missing_translatable + changed_translatable
+    translatable = missing_translatable + changed_translatable + invalid_targets
     passthrough = missing_passthrough + changed_passthrough
 
     result.missing_count = len(classification["missing_translatable"]) + len(classification["missing_passthrough"])
     result.changed_count = len(classification["changed_translatable"]) + len(classification["changed_passthrough"])
+    result.invalid_count = len(invalid_targets)
     result.orphan_count = len(orphan_paths)
     result.unchanged_count = len(unchanged_paths)
     result.copied = len(passthrough)
@@ -242,6 +247,10 @@ def process_locale(
             for path, val in classification["changed_translatable"]:
                 progress.console.print(
                     rf"[dim]\[{locale}][/dim] [red]Changed:[/red] [blue]{_format_path(path)}[/blue] -> [italic]{val}[/italic]"
+                )
+            for path, val in classification["invalid_target"]:
+                progress.console.print(
+                    rf"[dim]\[{locale}][/dim] [bright_red]Broken ICU:[/bright_red] [blue]{_format_path(path)}[/blue] (will re-translate)"
                 )
             for path, val in (missing_passthrough + changed_passthrough):
                 progress.console.print(
@@ -548,6 +557,31 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                 f"[yellow]Warning: Source file '{source}' is empty. Nothing to translate.[/yellow]"
             )
 
+        # Source strings that look like ICU plural/select but do not parse are
+        # excluded from translation everywhere (translating them through the
+        # marker path is exactly what corrupts reserved keywords). Warn once.
+        invalid_sources = LocaleProcessor.find_invalid_icu_sources(source_data)
+        if invalid_sources:
+            def _icu_error(value):
+                try:
+                    icu.parse(value)
+                except icu.ICUParseError as e:
+                    return str(e)
+                return "unknown error"
+
+            lines = [
+                f"[red]•[/red] [blue]{path_to_key(path)}[/blue] — [dim]{_icu_error(val)}[/dim]"
+                for path, val in invalid_sources[:10]
+            ]
+            if len(invalid_sources) > 10:
+                lines.append(f"[dim]... and {len(invalid_sources) - 10} more[/dim]")
+            console.print(Panel(
+                "\n".join(lines) + "\n[yellow]These keys are skipped in every locale until the source is fixed.[/yellow]",
+                title=f"[bold red]✖ {len(invalid_sources)} invalid ICU MessageFormat source string(s)[/bold red]",
+                border_style="red",
+                expand=False,
+            ))
+
         state_path = config_data.get('state_file') or default_state_path(dir)
         snapshot_hashes, snapshot_existed = load_state(state_path)
         baseline_origin = "snapshot" if snapshot_existed else "bootstrap"
@@ -701,10 +735,12 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         total_missing = sum(r.missing_count for r in sorted_results)
         total_changed = sum(r.changed_count for r in sorted_results)
         total_orphans = sum(r.orphan_count for r in sorted_results)
+        total_invalid = sum(r.invalid_count for r in sorted_results)
 
         # Decide which columns to render — drop ones that would be uniformly "—".
         show_missing = total_missing > 0
         show_changed = total_changed > 0
+        show_invalid = total_invalid > 0
         show_orphans = total_orphans > 0
         show_unchanged = verbose  # noise unless the user asked for detail
         show_translated = (not dry_run) and total_translated > 0
@@ -721,6 +757,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         summary_table.add_column("Status")
         if show_missing:   summary_table.add_column("Missing",    justify="right", style="yellow")
         if show_changed:   summary_table.add_column("Changed",    justify="right", style="red")
+        if show_invalid:   summary_table.add_column("Broken ICU", justify="right", style="bright_red")
         if show_orphans:   summary_table.add_column("Orphans",    justify="right", style="bright_black")
         if show_unchanged: summary_table.add_column("Unchanged",  justify="right", style="dim")
         if show_translated:summary_table.add_column("Translated", justify="right", style="green")
@@ -730,7 +767,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
 
         for r in sorted_results:
             if dry_run:
-                pending = r.missing_count + r.changed_count
+                pending = r.missing_count + r.changed_count + r.invalid_count
                 if pending > 0:
                     status_text = "[yellow]Pending[/yellow]"
                 elif r.orphan_count > 0:
@@ -753,6 +790,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
 
             if show_missing:    row.append(_cell(r.missing_count, bold=True))
             if show_changed:    row.append(_cell(r.changed_count, bold=True))
+            if show_invalid:    row.append(_cell(r.invalid_count, bold=True))
             if show_orphans:    row.append(_cell(r.orphan_count, bold=True))
             if show_unchanged:  row.append(_cell(r.unchanged_count))
             if show_translated: row.append(_cell(r.translated))
@@ -765,10 +803,11 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         # If literally nothing happened, skip the table entirely and rely on the footer.
         nothing_to_show = (
             dry_run and total_missing == 0 and total_changed == 0 and total_orphans == 0
+            and total_invalid == 0
         ) or (
             not dry_run and not (
                 show_translated or show_copied or show_pruned or show_failed
-                or total_missing or total_changed or total_orphans
+                or total_missing or total_changed or total_orphans or total_invalid
             )
         )
         if not nothing_to_show:
@@ -819,7 +858,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         console.print()
 
         if dry_run:
-            has_drift = (total_missing + total_changed + total_orphans) > 0
+            has_drift = (total_missing + total_changed + total_orphans + total_invalid) > 0
             next_steps = []
             if total_missing > 0 and total_changed == 0 and total_orphans == 0:
                 next_steps.append("[cyan]langsync[/cyan] translates the missing keys.")
@@ -827,6 +866,8 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                 next_steps.append("[cyan]langsync --update-changed[/cyan] re-translates only the edited keys.")
             elif total_missing > 0 and total_changed > 0:
                 next_steps.append("[cyan]langsync[/cyan] handles missing + changed keys.")
+            if total_invalid > 0:
+                next_steps.append("[cyan]langsync[/cyan] re-translates the broken ICU string(s) in place.")
             if total_orphans > 0:
                 next_steps.append("[cyan]langsync --prune[/cyan] removes the orphan keys.")
             next_steps_text = ("\n" + "\n".join(f"[dim]→[/dim] {s}" for s in next_steps)) if next_steps else ""
@@ -849,7 +890,8 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                 f"[dim]Time elapsed:[/dim] [bold cyan]{total_time:.2f}s[/bold cyan]\n"
                 f"[dim]Missing:[/dim] [bold yellow]{total_missing}[/bold yellow]   "
                 f"[dim]Changed:[/dim] [bold red]{total_changed}[/bold red]   "
-                f"[dim]Orphans:[/dim] [bold bright_black]{total_orphans}[/bold bright_black]"
+                + (f"[dim]Broken ICU:[/dim] [bold bright_red]{total_invalid}[/bold bright_red]   " if total_invalid else "")
+                + f"[dim]Orphans:[/dim] [bold bright_black]{total_orphans}[/bold bright_black]"
                 f"{next_steps_text}"
             )
         else:
@@ -876,7 +918,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
 
         _print_update_banner(poll_update(0.4))
 
-        if check and (total_missing + total_changed + total_orphans) > 0:
+        if check and (total_missing + total_changed + total_orphans + total_invalid + len(invalid_sources)) > 0:
             sys.exit(1)
 
     except KeyboardInterrupt:

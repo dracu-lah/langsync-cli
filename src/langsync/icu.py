@@ -16,6 +16,8 @@ structurally incapable of being altered. Callers still re-parse() the rebuilt
 message as a final guard against a translation that introduces stray braces.
 """
 
+import re
+
 PLURAL_KEYWORDS = {"zero", "one", "two", "few", "many", "other"}
 BRANCHING_TYPES = {"plural", "selectordinal", "select"}
 
@@ -275,3 +277,14 @@ def is_valid(text):
     except ICUParseError:
         return False
     return True
+
+
+_SUSPECT_RE = re.compile(r"\{\s*[^{},]*,\s*(plural|selectordinal|select)\s*,")
+
+
+def looks_structured(text):
+    """True when text *appears* to contain a plural/selectordinal/select
+    argument, regardless of whether it parses. A string that looks structured
+    but fails parse() must never be translated through the plain marker path —
+    that is exactly how reserved keywords end up machine-translated."""
+    return isinstance(text, str) and bool(_SUSPECT_RE.search(text))

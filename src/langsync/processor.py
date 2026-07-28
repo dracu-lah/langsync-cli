@@ -1,6 +1,7 @@
 import json
 import os
 
+from . import icu
 from .state import path_to_key, value_hash
 
 
@@ -44,17 +45,24 @@ class LocaleProcessor:
             missing_passthrough:  [(path, value)]  - non-string/empty source, absent in target
             changed_translatable: [(path, value)]  - string source whose hash differs from snapshot
             changed_passthrough:  [(path, value)]  - non-string/empty source whose hash differs
+            invalid_target:       [(path, value)]  - target string is broken ICU while the
+                                                     source parses; needs re-translation
+            invalid_source:       [(path, value)]  - source looks like ICU but doesn't parse;
+                                                     must never be translated
             unchanged:            [path, ...]
             orphans:              [path, ...]      - present in target but not in source
 
         force_rewrite=True treats every source key as `changed_*`, regardless of
-        what the target or snapshot say.
+        what the target or snapshot say (except invalid_source, which is always
+        excluded from translation).
         """
         result = {
             "missing_translatable": [],
             "missing_passthrough": [],
             "changed_translatable": [],
             "changed_passthrough": [],
+            "invalid_target": [],
+            "invalid_source": [],
             "unchanged": [],
             "orphans": [],
         }
@@ -98,6 +106,13 @@ class LocaleProcessor:
             and not isinstance(target, (dict, list))
         )
 
+        # A source string that *looks* like ICU (plural/select) but doesn't
+        # parse must never be translated: the plain marker path would expose
+        # its reserved keywords to the API. Surface it instead.
+        if is_translatable and icu.looks_structured(value) and not icu.is_valid(value):
+            result["invalid_source"].append((current_path, value))
+            return
+
         if force_rewrite:
             bucket = "changed_translatable" if is_translatable else "changed_passthrough"
             result[bucket].append((current_path, value))
@@ -106,6 +121,20 @@ class LocaleProcessor:
         if not target_has_value:
             bucket = "missing_translatable" if is_translatable else "missing_passthrough"
             result[bucket].append((current_path, value))
+            return
+
+        # Present but broken: a target string that no longer parses as ICU
+        # while its source does will parse-fail at render and show nothing —
+        # worse than a missing key. Flag it for re-translation regardless of
+        # what the drift snapshot says.
+        if (
+            is_translatable
+            and "{" in value
+            and isinstance(target, str)
+            and icu.is_valid(value)
+            and not icu.is_valid(target)
+        ):
+            result["invalid_target"].append((current_path, value))
             return
 
         prior_hash = snapshot_hashes.get(path_to_key(current_path))
@@ -142,9 +171,32 @@ class LocaleProcessor:
         classify_keys for that.
         """
         c = self.classify_keys(target_data, snapshot_hashes=None, force_rewrite=rewrite)
-        translatable = c["missing_translatable"] + c["changed_translatable"]
+        translatable = c["missing_translatable"] + c["changed_translatable"] + c["invalid_target"]
         passthrough = c["missing_passthrough"] + c["changed_passthrough"]
         return translatable, passthrough
+
+    @staticmethod
+    def find_invalid_icu_sources(data):
+        """Walk a source tree and return [(path, value)] for every string that
+        looks like an ICU plural/select message but does not parse. These keys
+        are excluded from translation until the source is fixed."""
+        out = []
+
+        def walk(node, path):
+            if isinstance(node, dict):
+                for key, val in node.items():
+                    walk(val, path + [key])
+            elif isinstance(node, list):
+                for i, val in enumerate(node):
+                    walk(val, path + [i])
+            elif (
+                isinstance(node, str) and node.strip()
+                and icu.looks_structured(node) and not icu.is_valid(node)
+            ):
+                out.append((path, node))
+
+        walk(data, [])
+        return out
 
     @staticmethod
     def set_value_by_path(data, path, value):

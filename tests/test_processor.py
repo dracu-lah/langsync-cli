@@ -245,3 +245,67 @@ def test_array_round_trip_translate_then_apply():
         LocaleProcessor.set_value_by_path(target, path, f"<{val}>")
 
     assert target == {"faq": [{"q": "<Question>", "n": 1}, {"q": "<Other>"}]}
+
+
+# --- ICU corpus validation ---------------------------------------------------
+
+ICU_OK = "{count, plural, one {# seat map} other {# seat maps}}"
+ICU_BROKEN_DE = "{count, plural, one {# seat map} andere {# seat maps}}"
+ICU_BROKEN_JA = "{count, plural, one {# seat map} その他 {# seat maps}}"
+
+
+def test_classify_flags_broken_icu_target():
+    source = {"mapCount": ICU_OK}
+    target = {"mapCount": ICU_BROKEN_DE}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+    assert [p for p, _ in c["invalid_target"]] == [["mapCount"]]
+    assert c["unchanged"] == []
+
+
+def test_classify_flags_broken_icu_target_nonlatin():
+    source = {"mapCount": ICU_OK}
+    target = {"mapCount": ICU_BROKEN_JA}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+    assert [p for p, _ in c["invalid_target"]] == [["mapCount"]]
+
+
+def test_classify_valid_icu_target_is_unchanged():
+    source = {"mapCount": ICU_OK}
+    target = {"mapCount": "{count, plural, one {# Sitzplan} other {# Sitzpläne}}"}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+    assert c["invalid_target"] == []
+    assert c["unchanged"] == [["mapCount"]]
+
+
+def test_classify_excludes_invalid_icu_source():
+    source = {"bad": "{count, plural, one {# item}}", "good": "Hello"}
+    c = LocaleProcessor(source).classify_keys({}, snapshot_hashes={})
+    assert [p for p, _ in c["invalid_source"]] == [["bad"]]
+    assert [p for p, _ in c["missing_translatable"]] == [["good"]]
+
+
+def test_classify_invalid_source_excluded_even_on_rewrite():
+    source = {"bad": "{count, plural, one {# item}}"}
+    c = LocaleProcessor(source).classify_keys({}, snapshot_hashes={}, force_rewrite=True)
+    assert [p for p, _ in c["invalid_source"]] == [["bad"]]
+    assert c["changed_translatable"] == []
+
+
+def test_classify_plain_braces_not_policed():
+    # A source that is not ICU-shaped must not have its target validated.
+    source = {"key": "See {docs for details"}
+    target = {"key": "Voir {docs mal traduit"}
+    c = LocaleProcessor(source).classify_keys(target, snapshot_hashes={})
+    assert c["invalid_target"] == []
+    assert c["invalid_source"] == []
+    assert c["unchanged"] == [["key"]]
+
+
+def test_find_invalid_icu_sources_walks_nested():
+    data = {
+        "a": {"nested": "{n, plural, one {# x}}"},
+        "list": ["fine", "{g, select, male {He}}"],
+        "ok": ICU_OK,
+    }
+    found = LocaleProcessor.find_invalid_icu_sources(data)
+    assert sorted(str(p) for p, _ in found) == ["['a', 'nested']", "['list', 1]"]
