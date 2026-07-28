@@ -31,6 +31,7 @@ curl -sSL langsync.nevil.dev | bash
 -   **✨ UI-Aware:** Synchronizes punctuation (like trailing periods) to maintain professional UI consistency.
 -   **🔍 Drift Detection:** A `.langsync-state.json` snapshot tracks every source value, so edited keys are re-translated and removed keys can be pruned on demand.
 -   **🧹 Opt-in Pruning:** Use `--prune` to drop orphan keys; without it they're surfaced as a warning rather than silently deleted.
+-   **💡 Actionable Errors:** Every error and warning is followed by a **How to fix** panel with the exact command to run — a missing locale dir prints the `mkdir` that creates it, a rate-limited run prints the config values to slow it down, failed keys print a `langsync --locales …` scoped to just the affected locales, and invalid ICU source strings print the before/after edit they need.
 
 ---
 

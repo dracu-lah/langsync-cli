@@ -82,6 +82,56 @@ def _format_path(path):
     return path_to_key(path)
 
 
+def _fix_block(fixes):
+    """Render fix hints. Each entry is either a plain string (advice) or a
+    (what, command) pair rendered with the command on its own indented line so
+    it can be copy-pasted straight into a shell."""
+    lines = []
+    for fix in fixes:
+        if not fix:
+            continue
+        if isinstance(fix, (tuple, list)):
+            what, command = fix
+            lines.append(f"[dim]→[/dim] {what}\n  [bold cyan]{command}[/bold cyan]")
+        else:
+            lines.append(f"[dim]→[/dim] {fix}")
+    return "\n".join(lines)
+
+
+def _print_fixes(*fixes, title="How to fix"):
+    """Print a panel of actionable next steps. No-op when there is nothing to say."""
+    block = _fix_block(fixes)
+    if not block:
+        return
+    console.print(Panel(
+        block,
+        title=f"[bold cyan]💡 {title}[/bold cyan]",
+        border_style="cyan",
+        expand=False,
+    ))
+
+
+def _die(message, *fixes, detail=None, code=1):
+    """Print an error, the way to fix it, and exit."""
+    console.print(f"[bold red]✖ {message}[/bold red]")
+    if detail:
+        console.print(f"[dim]{detail}[/dim]")
+    _print_fixes(*fixes)
+    sys.exit(code)
+
+
+def _config_label(loaded_path):
+    """Name the config in fix hints — relative when it lives under the cwd, so the
+    hint stays readable instead of wrapping an absolute path across three lines."""
+    if not loaded_path:
+        return "langsync.json"
+    try:
+        relative = os.path.relpath(loaded_path)
+    except ValueError:  # different drive on Windows
+        return loaded_path
+    return relative if not relative.startswith("..") else loaded_path
+
+
 def _translate_with_fallback(translator_service, batch, retry_count, delay, result, progress, locale_task_id, verbose):
     """Translate a batch. If batch fails, fall back to per-item translation.
     Mutates `result` (counts + issues). Returns list of (path, translated_value)
@@ -320,6 +370,30 @@ def process_locale(
     return result
 
 
+def _truncate_issue(message, limit=160):
+    """Keep the issues table readable — some upstream errors (e.g. deep-translator's
+    unsupported-language error) embed the entire supported-language table."""
+    first_line = str(message).split("\n", 1)[0]
+    if len(first_line) <= limit:
+        return first_line
+    return first_line[:limit].rstrip() + " …"
+
+
+def _retry_command(results):
+    """The command that retries the failed keys. Locales whose translator could not
+    even be constructed are excluded — re-running them changes nothing."""
+    unfixable = {
+        r.locale for r in results
+        if any(kind == "init" for kind, _ in r.issues)
+    }
+    retryable = sorted({r.locale for r in results if r.failed and r.locale not in unfixable})
+    if not retryable:
+        return None
+    if len(retryable) == len([r for r in results if r.locale not in unfixable]):
+        return "langsync"
+    return f"langsync --locales {','.join(retryable)}"
+
+
 def _render_issues_panel(results):
     """Build a clean panel summarizing issues per locale, or return None if all clean."""
     locales_with_issues = [r for r in results if r.issues or r.failed]
@@ -336,7 +410,7 @@ def _render_issues_panel(results):
         kinds = Counter(kind for kind, _ in r.issues)
         cause_summary = ", ".join(f"{k} x{v}" for k, v in kinds.most_common())
 
-        sample_messages = [msg for _, msg in r.issues[:2]]
+        sample_messages = [_truncate_issue(msg) for _, msg in r.issues[:2]]
         if len(r.issues) > 2:
             sample_messages.append(f"... and {len(r.issues) - 2} more")
         details = "\n".join(sample_messages) if sample_messages else "—"
@@ -348,36 +422,76 @@ def _render_issues_panel(results):
             details,
         )
 
-    hints = []
-    all_kinds = Counter(k for r in locales_with_issues for k, _ in r.issues)
-    if all_kinds.get("rate_limit"):
-        hints.append("• Rate-limited by Google Translate — increase `delay_between_requests` or lower `max_parallel_locales`.")
-    if all_kinds.get("network"):
-        hints.append("• Network errors detected — check your connection and re-run; failed keys will be retried.")
-    if all_kinds.get("api"):
-        hints.append("• Translator API returned errors for some items — re-run to retry, or rephrase the source string.")
-    if all_kinds.get("empty"):
-        hints.append("• Some items came back empty — these were left unset so the next run will retry them.")
-    if all_kinds.get("icu"):
-        hints.append("• Some translations would have corrupted ICU MessageFormat syntax (plural/select). They were rejected and left unset; re-run to retry.")
-    if all_kinds.get("io"):
-        hints.append("• File I/O issues — verify the locale file is writable and not held open elsewhere.")
-    hint_text = "\n".join(hints)
-
-    panel_body = table
-    if hint_text:
-        return Panel.fit(
-            table,
-            title="[bold yellow]⚠ Issues encountered[/bold yellow]",
-            border_style="yellow",
-            subtitle=hint_text,
-            subtitle_align="left",
-        )
     return Panel.fit(
-        panel_body,
+        table,
         title="[bold yellow]⚠ Issues encountered[/bold yellow]",
         border_style="yellow",
     )
+
+
+def _issue_fixes(results, config_label, messages_dir):
+    """Map the issue kinds a run produced onto concrete commands that fix them."""
+    locales_with_issues = [r for r in results if r.issues or r.failed]
+    if not locales_with_issues:
+        return []
+
+    all_kinds = Counter(k for r in locales_with_issues for k, _ in r.issues)
+    locales_by_kind = {}
+    for r in locales_with_issues:
+        for kind, _ in r.issues:
+            locales_by_kind.setdefault(kind, set()).add(r.locale)
+    retry_cmd = _retry_command(results) or "langsync"
+
+    fixes = []
+    # Kinds that a plain re-run fixes are folded into a single retry line at the
+    # end — repeating the same command per kind is noise.
+    retry_reasons = []
+
+    if all_kinds.get("rate_limit"):
+        fixes.append((
+            f"Google Translate rate-limited the run. Slow it down in [bold]{config_label}[/bold]:",
+            '"delay_between_requests": 0.5, "max_parallel_locales": 1',
+        ))
+        retry_reasons.append("rate limits")
+    if all_kinds.get("network"):
+        fixes.append("Network errors — check your connection before retrying.")
+        retry_reasons.append("network errors")
+    if all_kinds.get("api"):
+        fixes.append(("The translator API rejected some items. See exactly which ones:", f"{retry_cmd} -v"))
+    if all_kinds.get("empty"):
+        retry_reasons.append("empty responses")
+    if all_kinds.get("icu"):
+        fixes.append(
+            "A translation would have broken ICU syntax and was rejected — the old value is intact, "
+            "nothing was corrupted."
+        )
+        retry_reasons.append("rejected ICU translations")
+    if all_kinds.get("io"):
+        bad_locale = sorted(locales_by_kind.get("io", {"<locale>"}))[0]
+        fixes.append((
+            "A locale file could not be read or written. Check permissions, then validate its JSON:",
+            f"ls -l {messages_dir} && python -m json.tool {os.path.join(messages_dir, bad_locale + '.json')}",
+        ))
+    if all_kinds.get("init"):
+        bad = locales_by_kind.get("init", set())
+        healthy = [r.locale for r in sorted(results, key=lambda x: x.locale) if r.locale not in bad]
+        fixes.append((
+            f"The translator does not support {', '.join(sorted(bad))}. Rename the file to a valid "
+            "locale code (e.g. [bold]pt-BR.json[/bold]), or skip it for now:",
+            f"langsync --locales {','.join(healthy) if healthy else '<locales>'}",
+        ))
+    if all_kinds.get("crash"):
+        fixes.append(("A locale worker crashed. Re-run with full output and report it if it persists:", "langsync -v"))
+    if all_kinds.get("unknown"):
+        retry_reasons.append("unexpected errors")
+
+    if retry_reasons and _retry_command(results):
+        fixes.append((
+            f"Retry the failed keys ({', '.join(retry_reasons)}) — the snapshot was not advanced for "
+            "them, so nothing was lost:",
+            retry_cmd,
+        ))
+    return fixes
 
 
 def _print_update_banner(update_info):
@@ -447,11 +561,13 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
     poll_update = start_update_check()
 
     if rewrite and update_changed:
-        console.print(
-            "[red]Error: --rewrite and --update-changed are mutually exclusive. "
-            "--rewrite already re-translates every key.[/red]"
+        _die(
+            "--rewrite and --update-changed are mutually exclusive.",
+            ("Re-translate every key (replaces existing translations):", "langsync --rewrite"),
+            ("Re-translate only keys whose source text changed:", "langsync --update-changed"),
+            ("Not sure which you want? Preview first:", "langsync --dry-run -v"),
+            code=2,
         )
-        sys.exit(2)
 
     # --check is a stricter --dry-run; reuse the dry-run code path and assert at the end.
     if check:
@@ -484,7 +600,11 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                         else:
                             console.print("[cyan]➤ Selected: [bold]No[/bold]. Proceeding with global configuration...[/cyan]")
                     except Exception as e:
-                        console.print(f"[red]Error handling global config: {e}")
+                        console.print(f"[bold red]✖ Could not read the global config: {e}[/bold red]")
+                        _print_fixes(
+                            ("Inspect it:", f"python -m json.tool {GLOBAL_CONFIG_PATH}"),
+                            ("Or bypass it with an explicit config:", "langsync --config ./langsync.json"),
+                        )
                 else:
                     if click.confirm("No configuration file found. Would you like to create a default 'langsync.json'?", default=True):
                         console.print("[green]➤ Selected: [bold]Yes[/bold][/green]")
@@ -494,8 +614,12 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                         sys.exit(0)
                     else:
                         console.print("[red]➤ Selected: [bold]No[/bold][/red]")
-                        console.print("[red]Error: Configuration is required to run langsync.")
-                        sys.exit(1)
+                        _die(
+                            "Configuration is required to run langsync.",
+                            ("Create one interactively:", "langsync   # answer 'y' at the prompt"),
+                            ("Or point at an existing config:", "langsync --config path/to/langsync.json"),
+                            ("Or skip the config entirely:", "langsync --source ./messages/en.json --dir ./messages"),
+                        )
 
         config_data, loaded_path = load_config(config)
 
@@ -503,58 +627,80 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         dir = dir or config_data.get('dir')
         rewrite = rewrite or config_data.get('rewrite', False)
 
+        cfg_label = _config_label(loaded_path)
+
         if not source:
-            console.print("[red]Error: No source file configured. Provide it via --source or set 'source' in langsync.json.[/red]")
-            sys.exit(1)
+            _die(
+                "No source file configured.",
+                ("Pass it on the command line:", "langsync --source ./messages/en.json"),
+                f'Or set [bold]"source"[/bold] in [bold]{cfg_label}[/bold].',
+            )
 
         if not os.path.exists(source):
-            console.print(
-                f"[red]Error: Source file '{source}' not found.[/red] "
-                f"[dim]Check the path or update 'source' in your config.[/dim]"
+            _die(
+                f"Source file '{source}' not found.",
+                ("See what is actually there:", f"ls -l {os.path.dirname(source) or '.'}"),
+                f'Then fix [bold]"source"[/bold] in [bold]{cfg_label}[/bold], or pass [bold cyan]--source <path>[/bold cyan].',
             )
-            sys.exit(1)
 
         if not os.path.isfile(source):
-            console.print(f"[red]Error: Source '{source}' exists but is not a regular file.[/red]")
-            sys.exit(1)
+            _die(
+                f"Source '{source}' exists but is not a regular file.",
+                ("Check what it is:", f"ls -ld {source}"),
+                "[bold]--source[/bold] must point at a single JSON file, not a directory.",
+            )
 
         if not dir:
-            console.print("[red]Error: No locale directory configured. Provide it via --dir or set 'dir' in langsync.json.[/red]")
-            sys.exit(1)
+            _die(
+                "No locale directory configured.",
+                ("Pass it on the command line:", "langsync --dir ./messages"),
+                f'Or set [bold]"dir"[/bold] in [bold]{cfg_label}[/bold].',
+            )
 
         if not os.path.exists(dir):
-            console.print(
-                f"[red]Error: Directory '{dir}' not found.[/red] "
-                f"[dim]Create it and add per-locale JSON files (e.g. fr-FR.json), or fix the path.[/dim]"
+            _die(
+                f"Locale directory '{dir}' not found.",
+                ("Create it and seed a locale file:", f"mkdir -p {dir} && echo '{{}}' > {os.path.join(dir, 'fr-FR.json')}"),
+                f'Or fix [bold]"dir"[/bold] in [bold]{cfg_label}[/bold].',
             )
-            sys.exit(1)
 
         if not os.path.isdir(dir):
-            console.print(f"[red]Error: '{dir}' is not a directory.[/red]")
-            sys.exit(1)
+            _die(
+                f"'{dir}' is not a directory.",
+                ("Check what it is:", f"ls -ld {dir}"),
+                "[bold]--dir[/bold] must point at the folder holding your per-locale JSON files.",
+            )
 
         try:
             source_data = LocaleProcessor.load_json(source)
         except json.JSONDecodeError as e:
-            console.print(
-                f"[red]Error: Source file '{source}' is not valid JSON.[/red]\n"
-                f"[dim]{e}[/dim]"
+            _die(
+                f"Source file '{source}' is not valid JSON.",
+                ("Find the exact offending line:", f"python -m json.tool {source}"),
+                detail=e,
             )
-            sys.exit(1)
         except OSError as e:
-            console.print(f"[red]Error reading source file '{source}': {e}[/red]")
-            sys.exit(1)
+            _die(
+                f"Could not read source file '{source}': {e}",
+                ("Check permissions:", f"ls -l {source}"),
+            )
 
         if not isinstance(source_data, dict):
-            console.print(
-                f"[red]Error: Source file '{source}' must contain a JSON object at the top level "
-                f"(found {type(source_data).__name__}).[/red]"
+            _die(
+                f"Source file '{source}' must contain a JSON object at the top level "
+                f"(found {type(source_data).__name__}).",
+                ("Inspect the top level:", f"python -m json.tool {source} | head"),
+                'Wrap the content in an object, e.g. [bold]{"app": {"title": "Hello"}}[/bold].',
             )
-            sys.exit(1)
 
         if not source_data:
             console.print(
-                f"[yellow]Warning: Source file '{source}' is empty. Nothing to translate.[/yellow]"
+                f"[bold yellow]⚠ Source file '{source}' is empty — nothing to translate.[/bold yellow]"
+            )
+            _print_fixes(
+                ("Add keys to the source, then preview the work:", "langsync --dry-run -v"),
+                ("Every target key is an orphan while the source is empty — do not run:", "langsync --prune"),
+                title="What to do next",
             )
 
         # Source strings that look like ICU plural/select but do not parse are
@@ -569,9 +715,11 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                     return str(e)
                 return "unknown error"
 
+            errors = [(path, val, _icu_error(val)) for path, val in invalid_sources]
+
             lines = [
-                f"[red]•[/red] [blue]{path_to_key(path)}[/blue] — [dim]{_icu_error(val)}[/dim]"
-                for path, val in invalid_sources[:10]
+                f"[red]•[/red] [blue]{path_to_key(path)}[/blue] — [dim]{err}[/dim]"
+                for path, _, err in errors[:10]
             ]
             if len(invalid_sources) > 10:
                 lines.append(f"[dim]... and {len(invalid_sources) - 10} more[/dim]")
@@ -581,6 +729,41 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                 border_style="red",
                 expand=False,
             ))
+
+            # Broken *source* ICU is the one case langsync cannot repair itself —
+            # pushing it through the translator is exactly what corrupts reserved
+            # keywords. Show only the edits the reported errors actually call for.
+            all_errors = " | ".join(err for _, _, err in errors)
+            fixes = [f"Edit [bold]{source}[/bold] by hand — langsync will not translate these keys."]
+            if "mandatory 'other' branch" in all_errors:
+                fixes.append(
+                    "Every plural/select needs an [bold]other[/bold] branch:\n"
+                    "  [red]{n, plural, one {# item}}[/red]\n"
+                    "  [green]{n, plural, one {# item} other {# items}}[/green]"
+                )
+            if "selector" in all_errors:
+                fixes.append(
+                    "Branch keywords are reserved — they stay English, only the text between "
+                    "the braces is translated:\n"
+                    "  [red]{n, plural, one {# Artikel} andere {# Artikel}}[/red]\n"
+                    "  [green]{n, plural, one {# Artikel} other {# Artikel}}[/green]"
+                )
+            if "unterminated" in all_errors or "unmatched" in all_errors or "expected" in all_errors:
+                fixes.append(
+                    "Unbalanced braces — every [bold]{[/bold] needs its [bold]}[/bold]:\n"
+                    "  [red]{n, plural, one {# item} other {# items}[/red]\n"
+                    "  [green]{n, plural, one {# item} other {# items}}[/green]"
+                )
+            fixes.append(
+                "A literal brace in prose must be quoted:\n"
+                "  [red]Use {braces} here[/red]\n"
+                "  [green]Use '{'braces'}' here[/green]"
+            )
+            fixes.append(("Re-check once you have edited the source:", "langsync --check"))
+            fixes.append(
+                "Fixing a source value changes its hash, so the next run re-translates that key in every locale."
+            )
+            _print_fixes(*fixes, title="How to fix invalid ICU source strings")
 
         state_path = config_data.get('state_file') or default_state_path(dir)
         snapshot_hashes, snapshot_existed = load_state(state_path)
@@ -619,11 +802,12 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                 if not os.path.isfile(os.path.join(dir, f"{loc}.json"))
             ]
             if missing_files:
-                console.print(
-                    f"[red]Error: --locales referenced locale files that do not exist in '{dir}':[/red] "
-                    f"{', '.join(missing_files)}"
+                _die(
+                    f"--locales referenced locale files that do not exist in '{dir}': {', '.join(missing_files)}",
+                    ("List the locales you actually have:", f"ls {os.path.join(dir, '*.json')}"),
+                    ("Or create the missing one and sync it:",
+                     f"echo '{{}}' > {os.path.join(dir, missing_files[0])} && langsync"),
                 )
-                sys.exit(1)
         else:
             try:
                 source_basename = os.path.basename(source)
@@ -635,13 +819,19 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
                     and not f.startswith('.')
                 )
             except OSError as e:
-                console.print(f"[red]Error reading directory '{dir}': {e}[/red]")
-                sys.exit(1)
+                _die(
+                    f"Could not read directory '{dir}': {e}",
+                    ("Check permissions:", f"ls -ld {dir}"),
+                )
 
         if not target_locales:
-            console.print(
-                f"[yellow]No target locale files found in '{dir}' to sync.[/yellow] "
-                f"[dim]Add files like fr-FR.json next to your source, or pass --locales.[/dim]"
+            console.print(f"[bold yellow]⚠ No target locale files found in '{dir}' to sync.[/bold yellow]")
+            _print_fixes(
+                ("Create your first locale file, then sync it:",
+                 f"echo '{{}}' > {os.path.join(dir, 'fr-FR.json')} && langsync"),
+                f"langsync syncs every [bold]*.json[/bold] in [bold]{dir}[/bold] except the source "
+                f"([bold]{os.path.basename(source)}[/bold]) — the file name is the locale code.",
+                title="What to do next",
             )
             return
 
@@ -817,16 +1007,22 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         if issues_panel:
             console.print()
             console.print(issues_panel)
+            _print_fixes(*_issue_fixes(results, cfg_label, dir), title="Suggested fixes")
 
         # Orphan warning — default behavior leaves them alone, so call it out.
         if total_orphans > 0 and not prune:
             orphan_msg = (
                 f"[bold yellow]⚠ {total_orphans} orphan key(s)[/bold yellow] "
-                f"(present in target locales but absent from source) were left in place. "
-                f"Re-run with [cyan]--prune[/cyan] to remove them."
+                f"(present in target locales but absent from source) were left in place."
             )
             console.print()
             console.print(Panel(orphan_msg, border_style="yellow", expand=False))
+            _print_fixes(
+                ("See exactly which keys they are:", "langsync --dry-run -v"),
+                ("Remove them once you are happy with the list:", "langsync --prune"),
+                "Leaving them is safe — they are only reported, never translated.",
+                title="What to do about orphans",
+            )
 
         # Persist a fresh snapshot, but only advance entries that every locale
         # successfully synced. For keys some locale failed:
@@ -850,15 +1046,27 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
 
                 save_state(state_path, new_hashes)
             except OSError as e:
-                console.print(f"[yellow]⚠ Could not write snapshot {state_path}: {e}[/yellow]")
+                console.print(f"[bold yellow]⚠ Could not write snapshot {state_path}: {e}[/bold yellow]")
+                _print_fixes(
+                    ("Make the directory writable, then re-run:", f"ls -ld {os.path.dirname(state_path) or '.'}"),
+                    "Until the snapshot is written, drift detection falls back to the previous baseline "
+                    "and already-translated keys may be re-translated next run.",
+                )
             except Exception as e:
-                console.print(f"[yellow]⚠ Snapshot update skipped: {e}[/yellow]")
+                console.print(f"[bold yellow]⚠ Snapshot update skipped: {e}[/bold yellow]")
+                _print_fixes(
+                    ("Re-run to rebuild the snapshot:", "langsync"),
+                    ("If it keeps failing, delete the snapshot and let langsync rebuild it:",
+                     f"rm {state_path} && langsync --dry-run"),
+                )
 
         total_time = time.time() - start_time
         console.print()
 
         if dry_run:
-            has_drift = (total_missing + total_changed + total_orphans + total_invalid) > 0
+            # Invalid source strings count as drift: --check exits 1 on them, so the
+            # headline must not claim "in sync" while they are outstanding.
+            has_drift = (total_missing + total_changed + total_orphans + total_invalid + len(invalid_sources)) > 0
             next_steps = []
             if total_missing > 0 and total_changed == 0 and total_orphans == 0:
                 next_steps.append("[cyan]langsync[/cyan] translates the missing keys.")
@@ -867,9 +1075,17 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
             elif total_missing > 0 and total_changed > 0:
                 next_steps.append("[cyan]langsync[/cyan] handles missing + changed keys.")
             if total_invalid > 0:
-                next_steps.append("[cyan]langsync[/cyan] re-translates the broken ICU string(s) in place.")
+                next_steps.append(
+                    f"[cyan]langsync[/cyan] re-translates the {total_invalid} broken ICU string(s) in place "
+                    "(no flag needed — healing overrides the snapshot)."
+                )
             if total_orphans > 0:
                 next_steps.append("[cyan]langsync --prune[/cyan] removes the orphan keys.")
+            if invalid_sources:
+                next_steps.append(
+                    f"[bright_red]Edit {source} by hand[/bright_red] to fix the {len(invalid_sources)} "
+                    "invalid ICU source string(s) — langsync skips them until then."
+                )
             next_steps_text = ("\n" + "\n".join(f"[dim]→[/dim] {s}" for s in next_steps)) if next_steps else ""
 
             if check and has_drift:
@@ -898,11 +1114,28 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
             if total_failed > 0:
                 headline = "[bold yellow]⚠ Sync Completed With Issues[/bold yellow]"
                 border_style = "yellow"
-                tail = f"\n[dim]Re-run langsync to retry the [bold red]{total_failed}[/bold red] failed key(s).[/dim]"
+                retry_cmd = _retry_command(results)
+                tail = (
+                    f"\n[dim]The snapshot was not advanced for the [bold red]{total_failed}[/bold red] "
+                    f"failed key(s), so nothing was lost"
+                    + (f" — a re-run picks them up:[/dim] [bold cyan]{retry_cmd}[/bold cyan]"
+                       if retry_cmd else ".[/dim] [dim]See the suggested fixes above.[/dim]")
+                )
             else:
                 headline = "[bold green]✓ Sync Completed Successfully![/bold green]"
                 border_style = "green"
                 tail = ""
+
+            if total_invalid > 0:
+                tail += (
+                    f"\n[dim]Healed[/dim] [bold bright_red]{total_invalid}[/bold bright_red] "
+                    f"[dim]broken ICU string(s) that were already in your locale files.[/dim]"
+                )
+            if invalid_sources:
+                tail += (
+                    f"\n[dim]Skipped[/dim] [bold bright_red]{len(invalid_sources)}[/bold bright_red] "
+                    f"[dim]invalid ICU source string(s) — fix {source} by hand, then re-run.[/dim]"
+                )
 
             footer_text = (
                 f"{headline}\n"
@@ -919,6 +1152,7 @@ def main(source, dir, locales, config, rewrite, update_changed, prune, dry_run, 
         _print_update_banner(poll_update(0.4))
 
         if check and (total_missing + total_changed + total_orphans + total_invalid + len(invalid_sources)) > 0:
+            console.print("[dim]--check exits 1 because the locales are not in sync (see the steps above).[/dim]")
             sys.exit(1)
 
     except KeyboardInterrupt:
