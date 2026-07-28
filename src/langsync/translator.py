@@ -1,6 +1,7 @@
 import time
 import re
 from deep_translator import GoogleTranslator
+from . import icu
 from .config import PLACEHOLDER_REGEX, LANG_MAP, WHITELIST as DEFAULT_WHITELIST
 
 
@@ -8,13 +9,16 @@ class TranslationError(Exception):
     """Raised when a translation request fails (network, rate limit, API error)."""
     def __init__(self, message, kind="unknown"):
         super().__init__(message)
-        self.kind = kind  # "rate_limit", "network", "api", "unknown"
+        self.kind = kind  # "rate_limit", "network", "api", "icu", "unknown"
 
 
 class TextProtector:
     @staticmethod
-    def protect(text, whitelist=None):
-        """Replaces whitelisted words and placeholders with unique markers."""
+    def protect(text, whitelist=None, protect_hash=False):
+        """Replaces whitelisted words and placeholders with unique markers.
+
+        protect_hash=True additionally protects '#', the ICU plural number
+        placeholder — used when the text is a fragment of a plural branch."""
         if not isinstance(text, str):
             return text, {}
 
@@ -26,6 +30,8 @@ class TextProtector:
             return marker
 
         protected_text = PLACEHOLDER_REGEX.sub(placeholder_replacer, text)
+        if protect_hash and "#" in protected_text:
+            protected_text = re.sub(r"#", placeholder_replacer, protected_text)
 
         active_whitelist = whitelist if whitelist is not None else DEFAULT_WHITELIST
 
@@ -54,7 +60,9 @@ class TextProtector:
             if marker == '_meta':
                 continue
             pattern = re.compile(re.escape(marker), re.IGNORECASE)
-            restored_text = pattern.sub(original, restored_text)
+            # Replace via a callable so backslashes in the original text are
+            # not interpreted as regex group references.
+            restored_text = pattern.sub(lambda m, o=original: o, restored_text)
 
         return restored_text
 
@@ -85,12 +93,58 @@ class TranslationService:
             and len(text) >= 2
         )
 
+    @staticmethod
+    def _structured(text):
+        """Return a ParsedMessage when text is valid ICU containing a
+        plural/selectordinal/select argument, else None. Such messages must be
+        translated span-by-span so the ICU skeleton never reaches the API."""
+        if not isinstance(text, str) or "{" not in text:
+            return None
+        try:
+            parsed = icu.parse(text)
+        except icu.ICUParseError:
+            return None
+        return parsed if parsed.has_branching else None
+
+    @staticmethod
+    def _prepare_segment(raw, whitelist):
+        """Split a span into (core, lead, trail) whitespace parts and protect
+        the core. Returns (core, lead, trail, protected, markers)."""
+        core = raw.strip()
+        lead = raw[:len(raw) - len(raw.lstrip())]
+        trail = raw[len(raw.rstrip()):]
+        protected, markers = TextProtector.protect(core, whitelist, protect_hash=True)
+        return core, lead, trail, protected, markers
+
+    @staticmethod
+    def _finish_segment(core, translated, markers):
+        """Restore markers in a translated span fragment. Returns the restored
+        text, or None when the translation is unusable (empty, or it lost an
+        ICU '#' placeholder)."""
+        if not translated:
+            return None
+        restored = TextProtector.restore(translated, markers)
+        if not restored:
+            return None
+        # Google likes to append a period to sentence fragments.
+        if not core.endswith('.'):
+            restored = restored.rstrip('.')
+        if not restored:
+            return None
+        if restored.count('#') != core.count('#'):
+            return None
+        return restored
+
     def translate_one(self, text, delay=0.0):
         """Translate a single string. Raises TranslationError on failure.
         Returns the original text if translation is not applicable (empty / too short / same lang).
         """
         if not self._needs_translation(text):
             return text
+
+        parsed = self._structured(text)
+        if parsed is not None:
+            return self._translate_structured_one(text, parsed, delay)
 
         protected_text, markers = TextProtector.protect(text, self.whitelist)
         try:
@@ -106,6 +160,40 @@ class TranslationService:
             raise TranslationError("Empty translation returned", kind="api")
         return restored
 
+    def _translate_structured_one(self, text, parsed, delay):
+        """Translate an ICU message by translating only its literal-text spans
+        and splicing them back into the untouched structural skeleton. The
+        result is re-parsed before being returned; anything unparseable raises
+        instead of ever being handed back to a caller that might write it."""
+        replacements = {}
+        for idx, raw, _in_plural in parsed.translatable_spans():
+            core, lead, trail, protected, markers = self._prepare_segment(raw, self.whitelist)
+            try:
+                translated = self.translator.translate(protected)
+            except Exception as e:
+                raise TranslationError(str(e), kind=_classify_error(e)) from e
+            restored = self._finish_segment(core, translated, markers)
+            if restored is None:
+                raise TranslationError(
+                    f"unusable translation for ICU segment {core!r}", kind="icu"
+                )
+            replacements[idx] = lead + restored + trail
+
+        if delay > 0:
+            time.sleep(delay)
+
+        if not replacements:
+            return text  # no human-readable text; the message is already fine
+
+        result = parsed.rebuild(replacements)
+        try:
+            icu.parse(result)
+        except icu.ICUParseError as e:
+            raise TranslationError(
+                f"translated ICU message failed validation ({e})", kind="icu"
+            )
+        return result
+
     def translate(self, text, delay=0.2):
         """Backwards-compatible: translates and silently returns the original on failure."""
         try:
@@ -117,47 +205,90 @@ class TranslationService:
         """Translates a list of strings. Raises TranslationError on full failure.
         Returns a list aligned with the input where each entry is either the translated
         string or None for items that came back empty/invalid.
+
+        ICU messages with plural/selectordinal/select arguments contribute only
+        their literal-text spans to the API batch; the structural skeleton is
+        reassembled locally and validated. An ICU item whose translation cannot
+        be validated comes back as None — an invalid message is never returned.
         """
         if not self.translator or not texts:
             return texts
 
-        protected_batch = []
-        batch_markers = []
+        # Build one flat list of protected strings to send. Plain texts map to
+        # a single entry; structured ICU texts map to one entry per span.
+        plans = []  # ("plain", flat_pos, markers) | ("icu", text, parsed, segments)
+        flat = []
 
         for text in texts:
-            has_trailing_dot = text.strip().endswith('.') if isinstance(text, str) else False
-            protected_text, markers = TextProtector.protect(text, self.whitelist)
-            protected_batch.append(protected_text)
-            markers['_meta'] = {'has_trailing_dot': has_trailing_dot}
-            batch_markers.append(markers)
+            parsed = self._structured(text)
+            if parsed is not None:
+                segments = []
+                for idx, raw, _in_plural in parsed.translatable_spans():
+                    core, lead, trail, protected, markers = self._prepare_segment(raw, self.whitelist)
+                    segments.append({
+                        "idx": idx, "core": core, "lead": lead, "trail": trail,
+                        "markers": markers, "flat_pos": len(flat),
+                    })
+                    flat.append(protected)
+                plans.append(("icu", text, parsed, segments))
+            else:
+                has_trailing_dot = text.strip().endswith('.') if isinstance(text, str) else False
+                protected_text, markers = TextProtector.protect(text, self.whitelist)
+                markers['_meta'] = {'has_trailing_dot': has_trailing_dot}
+                plans.append(("plain", len(flat), markers))
+                flat.append(protected_text)
 
-        try:
-            translated_batch = self.translator.translate_batch(protected_batch)
-        except Exception as e:
-            kind = _classify_error(e)
-            if kind == "rate_limit":
-                # Preserve legacy message so cli rate-limit branch keeps matching.
-                raise Exception("RATE_LIMIT_HIT") from e
-            raise TranslationError(str(e), kind=kind) from e
+        translated_flat = []
+        if flat:
+            try:
+                translated_flat = self.translator.translate_batch(flat)
+            except Exception as e:
+                kind = _classify_error(e)
+                if kind == "rate_limit":
+                    # Preserve legacy message so cli rate-limit branch keeps matching.
+                    raise Exception("RATE_LIMIT_HIT") from e
+                raise TranslationError(str(e), kind=kind) from e
 
-        if delay > 0:
-            time.sleep(delay)
+            if delay > 0:
+                time.sleep(delay)
 
-        if not translated_batch or len(translated_batch) != len(texts):
-            raise TranslationError(
-                f"Batch returned {len(translated_batch) if translated_batch else 0} items, expected {len(texts)}",
-                kind="api",
-            )
+            if not translated_flat or len(translated_flat) != len(flat):
+                raise TranslationError(
+                    f"Batch returned {len(translated_flat) if translated_flat else 0} items, expected {len(flat)}",
+                    kind="api",
+                )
 
         results = []
-        for translated, markers in zip(translated_batch, batch_markers):
-            if translated is None or translated == "":
+        for plan in plans:
+            if plan[0] == "plain":
+                _, flat_pos, markers = plan
+                translated = translated_flat[flat_pos]
+                if translated is None or translated == "":
+                    results.append(None)
+                    continue
+                restored = TextProtector.restore(translated, markers)
+                if restored and not markers['_meta']['has_trailing_dot']:
+                    restored = restored.rstrip('.')
+                results.append(restored if restored else None)
+                continue
+
+            _, text, parsed, segments = plan
+            replacements = {}
+            usable = True
+            for seg in segments:
+                restored = self._finish_segment(
+                    seg["core"], translated_flat[seg["flat_pos"]], seg["markers"]
+                )
+                if restored is None:
+                    usable = False
+                    break
+                replacements[seg["idx"]] = seg["lead"] + restored + seg["trail"]
+            if not usable:
                 results.append(None)
                 continue
-            restored = TextProtector.restore(translated, markers)
-            if restored and not markers['_meta']['has_trailing_dot']:
-                restored = restored.rstrip('.')
-            results.append(restored if restored else None)
+            rebuilt = parsed.rebuild(replacements) if replacements else text
+            # Belt and braces: never emit an ICU message that no longer parses.
+            results.append(rebuilt if icu.is_valid(rebuilt) else None)
         return results
 
 

@@ -23,6 +23,7 @@ curl -sSL langsync.nevil.dev | bash
 -   **🚀 Parallel Execution:** Syncs multiple locales simultaneously using optimized thread pooling.
 -   **📦 Batch Translation:** Groups keys into single requests, drastically reducing translation time and API calls.
 -   **🛡️ Smart Protection:** Automatically detects and protects `{variable}` and `<tag>` placeholders.
+-   **🔢 ICU MessageFormat Safe:** Messages with `plural` / `selectordinal` / `select` arguments are parsed into an AST; only the human-readable branch text is sent for translation, while argument names, branch keywords (`one`, `other`, `=1`, …) and the `#` placeholder are structurally locked. Every rebuilt message is re-validated with the parser before it is written — a translation that would break ICU syntax is rejected (and retried on the next run) instead of shipped.
 -   **🧩 Deep Structure Support:** Recurses into arrays and nested objects — strings inside a list (FAQs, feature cards, bullet lists) are translated element by element, not copied verbatim. Drift is tracked per array element (`items[0].title`).
 -   **📝 Whitelist Support:** Keep brand names and technical terms (e.g., "SwayWM", "Lascade") untouched.
 -   **📉 Rate Limit Resilience:** Intelligent "Cool Down" mechanism with exponential backoff for API stability.

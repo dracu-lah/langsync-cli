@@ -349,6 +349,8 @@ def _render_issues_panel(results):
         hints.append("• Translator API returned errors for some items — re-run to retry, or rephrase the source string.")
     if all_kinds.get("empty"):
         hints.append("• Some items came back empty — these were left unset so the next run will retry them.")
+    if all_kinds.get("icu"):
+        hints.append("• Some translations would have corrupted ICU MessageFormat syntax (plural/select). They were rejected and left unset; re-run to retry.")
     if all_kinds.get("io"):
         hints.append("• File I/O issues — verify the locale file is writable and not held open elsewhere.")
     hint_text = "\n".join(hints)
