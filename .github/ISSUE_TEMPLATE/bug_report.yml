@@ -4,7 +4,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Thanks for reporting! Please check the problem still happens on the latest version (`curl -sSL langsync.pages.dev | bash` updates it).
+      value: Thanks for reporting! Please check the problem still happens on the latest version (`curl -sSL langsync.nevil.dev | bash` updates it).
   - type: input
     id: version
     attributes:

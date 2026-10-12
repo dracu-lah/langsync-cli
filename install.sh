@@ -1,7 +1,7 @@
 #!/bin/sh
 # LangSync Install Script
-# Run with: curl -sSL langsync.pages.dev | bash
-# (the site serves this file from the main branch; the raw GitHub URL works too)
+# Run with: curl -sSL langsync.nevil.dev | bash
+# (it serves this file from the main branch; the raw GitHub URL works too)
 
 set -e
 

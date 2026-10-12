@@ -26,7 +26,7 @@
 ## Install
 
 ```bash
-curl -sSL langsync.pages.dev | bash
+curl -sSL langsync.nevil.dev | bash
 ```
 
 The script installs with [pipx](https://pipx.pypa.io) and falls back to `pip --user`. Run the same

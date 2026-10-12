@@ -3,7 +3,7 @@
 ## Supported versions
 
 Only the latest version gets fixes. Run `langsync --version`, and reinstall with
-`curl -sSL langsync.pages.dev | bash` to check the problem still happens on the newest one.
+`curl -sSL langsync.nevil.dev | bash` to check the problem still happens on the newest one.
 
 ## Reporting a vulnerability
 
@@ -18,4 +18,4 @@ within a week, and the fix can credit you if you like.
 LangSync runs on your machine and sends the strings it translates to Google Translate through
 [deep-translator](https://github.com/nidhaloff/deep-translator). Problems in those services belong
 upstream, though a heads up is welcome when LangSync is affected. The installer at
-`langsync.pages.dev` serves `install.sh` from this repository's `main` branch unchanged.
+`langsync.nevil.dev` serves `install.sh` from this repository unchanged.
