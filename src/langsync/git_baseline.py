@@ -4,14 +4,15 @@ Used as a *smart bootstrap* on first run when no `.langsync-state.json` snapshot
 exists yet: we look for the most recent commit that touched the locale dir
 (or, failing that, the source file itself) and use that commit's source JSON
 to seed the snapshot hashes. Every step is best-effort — any failure (no git
-binary, not a repo, file untracked, malformed JSON, etc.) returns None and the
+binary, not a repo, file untracked, malformed JSON/YAML, etc.) returns None and the
 caller falls back to a normal empty bootstrap.
 """
 
-import json
 import os
 import shutil
 import subprocess
+
+from .fileio import FormatError, parse_text
 
 GIT_TIMEOUT_SECONDS = 5
 
@@ -83,7 +84,7 @@ def _to_repo_relative(path, repo_root):
 
 
 def find_baseline_source(source_path, dir_path, cwd=None):
-    """Best-effort recovery of the last-known source JSON from git history.
+    """Best-effort recovery of the last-known source file from git history.
 
     Strategy:
       1. Confirm we are inside a git working tree.
@@ -121,9 +122,12 @@ def find_baseline_source(source_path, dir_path, cwd=None):
         content = _show_file_at_commit(commit, source_rel, cwd=repo_root)
         if content is None or not content.strip():
             continue
+        # Parse by extension (JSON/ARB, or YAML when PyYAML is installed). A
+        # blob that doesn't parse, or YAML without PyYAML, just skips the
+        # bootstrap.
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
+            data = parse_text(content, source_path)
+        except (ValueError, FormatError):
             continue
         if isinstance(data, dict):
             return data

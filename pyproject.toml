@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langsync"
-version = "0.10.0"
-description = "A modern I18N sync tool with parallel translation."
+version = "0.11.0"
+description = "Keep every locale file in sync with one source: translates missing and edited keys, keeps ICU plurals and placeholders intact."
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [

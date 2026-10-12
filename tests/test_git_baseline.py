@@ -115,3 +115,50 @@ def test_find_baseline_handles_malformed_previous_source(tmp_path):
 
     # Baseline lookup must NOT raise — it returns None for a clean fallback.
     assert find_baseline_source(str(source), str(msgs), cwd=str(tmp_path)) is None
+
+
+@requires_git
+def test_find_baseline_reads_arb_source(tmp_path):
+    _init_repo(tmp_path)
+    msgs = tmp_path / "l10n"
+    msgs.mkdir()
+    source = msgs / "app_en.arb"
+    source.write_text(json.dumps({"@@locale": "en", "hi": "Hello"}), encoding="utf-8")
+    _git(["add", "."], cwd=str(tmp_path))
+    _git(["commit", "-q", "-m", "arb"], cwd=str(tmp_path))
+    source.write_text(json.dumps({"@@locale": "en", "hi": "Hi"}), encoding="utf-8")
+
+    baseline = find_baseline_source(str(source), str(msgs), cwd=str(tmp_path))
+    assert baseline == {"@@locale": "en", "hi": "Hello"}
+
+
+@requires_git
+def test_find_baseline_reads_yaml_source(tmp_path):
+    pytest.importorskip("yaml")
+    _init_repo(tmp_path)
+    msgs = tmp_path / "locales"
+    msgs.mkdir()
+    source = msgs / "en.yml"
+    source.write_text("hello: Hello\nnested:\n  bye: Goodbye\n", encoding="utf-8")
+    _git(["add", "."], cwd=str(tmp_path))
+    _git(["commit", "-q", "-m", "yaml"], cwd=str(tmp_path))
+    source.write_text("hello: Hi\n", encoding="utf-8")
+
+    baseline = find_baseline_source(str(source), str(msgs), cwd=str(tmp_path))
+    assert baseline == {"hello": "Hello", "nested": {"bye": "Goodbye"}}
+
+
+@requires_git
+def test_find_baseline_yaml_without_pyyaml_returns_none(tmp_path, monkeypatch):
+    import sys
+
+    _init_repo(tmp_path)
+    msgs = tmp_path / "locales"
+    msgs.mkdir()
+    source = msgs / "en.yaml"
+    source.write_text("hello: Hello\n", encoding="utf-8")
+    _git(["add", "."], cwd=str(tmp_path))
+    _git(["commit", "-q", "-m", "yaml"], cwd=str(tmp_path))
+
+    monkeypatch.setitem(sys.modules, "yaml", None)  # makes `import yaml` fail
+    assert find_baseline_source(str(source), str(msgs), cwd=str(tmp_path)) is None

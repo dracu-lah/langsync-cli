@@ -309,3 +309,177 @@ def test_find_invalid_icu_sources_walks_nested():
     }
     found = LocaleProcessor.find_invalid_icu_sources(data)
     assert sorted(str(p) for p, _ in found) == ["['a', 'nested']", "['list', 1]"]
+
+
+# --- File IO via the processor -------------------------------------------------
+
+
+def test_load_json_empty_file_is_empty_dict(tmp_path):
+    path = tmp_path / "fr.json"
+    path.write_text("", encoding="utf-8")
+    assert LocaleProcessor.load_json(str(path)) == {}
+
+
+def test_save_json_is_atomic_and_keeps_layout(tmp_path):
+    path = tmp_path / "fr.json"
+    path.write_text('{\n    "a": "x"\n}', encoding="utf-8")
+    LocaleProcessor.save_json(str(path), {"a": "y"})
+    assert path.read_text(encoding="utf-8") == '{\n    "a": "y"\n}'
+    assert os.listdir(str(tmp_path)) == ["fr.json"]
+
+
+# --- exclude / skip_keys ----------------------------------------------------------
+
+
+def test_exclude_missing_key_is_copied_verbatim():
+    source = {"brand": {"name": "Acme"}, "legal": {"tos": "Terms"}, "hi": "Hello"}
+    c = LocaleProcessor(source).classify_keys({}, snapshot_hashes={}, exclude=["brand.*", "legal.tos"])
+    assert [p for p, _ in c["missing_translatable"]] == [["hi"]]
+    assert {tuple(p): v for p, v in c["missing_passthrough"]} == {
+        ("brand", "name"): "Acme",
+        ("legal", "tos"): "Terms",
+    }
+
+
+def test_exclude_changed_key_is_passthrough():
+    source = {"brand": "Acme 2"}
+    target = {"brand": "Acme"}
+    snapshot = {"brand": value_hash("Acme")}
+    c = LocaleProcessor(source).classify_keys(target, snapshot, exclude=["brand"])
+    assert c["changed_passthrough"] == [(["brand"], "Acme 2")]
+    assert c["changed_translatable"] == []
+
+
+def test_exclude_unchanged_and_not_identical():
+    source = {"brand": "Acme Corp"}
+    target = {"brand": "Acme Corp"}
+    c = LocaleProcessor(source).classify_keys(target, compute_source_hashes(source), exclude=["brand"])
+    assert c["unchanged"] == [["brand"]]
+    assert c["identical"] == []
+
+
+def test_exclude_present_key_survives_force_rewrite():
+    source = {"brand": "Acme", "hi": "Hello"}
+    target = {"brand": "ACME (custom)", "hi": "Salut"}
+    snapshot = {"brand": value_hash("Old")}
+    c = LocaleProcessor(source).classify_keys(target, snapshot, force_rewrite=True, exclude=["brand"])
+    assert c["unchanged"] == [["brand"]]
+    assert c["changed_translatable"] == [(["hi"], "Hello")]
+    assert c["changed_passthrough"] == []
+
+
+def test_exclude_absent_key_under_force_rewrite_is_copied():
+    c = LocaleProcessor({"brand": "Acme"}).classify_keys({}, {}, force_rewrite=True, exclude=["brand"])
+    assert c["missing_passthrough"] == [(["brand"], "Acme")]
+
+
+def test_exclude_matches_array_keys_and_is_case_sensitive():
+    source = {"items": ["One", "Two"], "Brand": "X"}
+    c = LocaleProcessor(source).classify_keys({}, {}, exclude=["items[[]0]", "brand"])
+    assert [p for p, _ in c["missing_passthrough"]] == [["items", 0]]
+    assert [p for p, _ in c["missing_translatable"]] == [["items", 1], ["Brand"]]
+
+
+def test_skip_keys_ignores_subtree_and_orphans():
+    def skip(path):
+        return isinstance(path[0], str) and path[0].startswith("@")
+
+    source = {"@@locale": "en", "hi": "Hello", "@hi": {"description": "Greeting"}}
+    target = {"@@locale": "fr", "@bye": {"description": "x"}, "old": "y"}
+    c = LocaleProcessor(source).classify_keys(target, {}, skip_keys=skip)
+    assert c["missing_translatable"] == [(["hi"], "Hello")]
+    assert c["missing_passthrough"] == []
+    assert c["unchanged"] == []
+    assert c["orphans"] == [["old"]]
+
+
+# --- identical ------------------------------------------------------------------
+
+
+def test_identical_reported_but_unchanged():
+    source = {"a": "Hello", "b": "Hello", "num": "42", "ph": "{count}", "mix": "{name} items", "empty": ""}
+    target = {"a": "Hello", "b": "Hola", "num": "42", "ph": "{count}", "mix": "{name} items", "empty": ""}
+    c = LocaleProcessor(source).classify_keys(target, compute_source_hashes(source))
+    assert c["identical"] == [["a"], ["mix"]]
+    assert ["a"] in c["unchanged"] and ["mix"] in c["unchanged"]
+
+
+def test_identical_not_reported_when_changed():
+    source = {"a": "Hello"}
+    target = {"a": "Hello"}
+    c = LocaleProcessor(source).classify_keys(target, {"a": value_hash("Hi")})
+    assert c["identical"] == []
+    assert c["changed_translatable"] == [(["a"], "Hello")]
+
+
+# --- shape mismatch ----------------------------------------------------------------
+
+
+def test_shape_mismatch_string_source_container_target():
+    source = {"a": "Hello", "b": "World"}
+    target = {"a": {"nested": "x"}, "b": ["x"]}
+    c = LocaleProcessor(source).classify_keys(target, {})
+    assert c["shape_mismatch"] == [["a"], ["b"]]
+    assert [p for p, _ in c["missing_translatable"]] == [["a"], ["b"]]
+
+
+def test_shape_mismatch_dict_source_string_target():
+    source = {"a": {"x": "Hello"}, "l": ["One"]}
+    target = {"a": "flat", "l": "flat"}
+    c = LocaleProcessor(source).classify_keys(target, {})
+    assert c["shape_mismatch"] == [["a"], ["l"]]
+    assert [p for p, _ in c["missing_translatable"]] == [["a", "x"], ["l", 0]]
+
+
+def test_no_shape_mismatch_for_absent_target():
+    c = LocaleProcessor({"a": {"x": "Hello"}, "b": "Hi"}).classify_keys({}, {})
+    assert c["shape_mismatch"] == []
+
+
+# --- reorder ----------------------------------------------------------------------
+
+
+def test_reorder_keep_returns_target():
+    target = {"b": 1, "a": 2}
+    assert LocaleProcessor.reorder({"a": 0, "b": 0}, target, "keep") is target
+
+
+def test_reorder_source_order_nested_with_orphans():
+    source = {"z": "1", "a": {"y": "2", "b": "3"}, "list": [{"q": "1", "p": "2"}]}
+    target = {"orphan1": "o", "a": {"extra": "e", "b": "B", "y": "Y"}, "list": [{"p": "P", "q": "Q"}], "z": "Z", "orphan2": "o"}
+    out = LocaleProcessor.reorder(source, target, "source")
+    assert list(out) == ["z", "a", "list", "orphan1", "orphan2"]
+    assert list(out["a"]) == ["y", "b", "extra"]
+    assert list(out["list"][0]) == ["q", "p"]
+    assert out == target
+    # New structure: the input is untouched.
+    assert list(target) == ["orphan1", "a", "list", "z", "orphan2"]
+
+
+def test_reorder_alpha_nested_case_sensitive():
+    target = {"b": {"d": 1, "C": 2, "c": 3}, "B": 1, "a": [{"y": 1, "x": 2}]}
+    out = LocaleProcessor.reorder({}, target, "alpha")
+    assert list(out) == ["B", "a", "b"]
+    assert list(out["b"]) == ["C", "c", "d"]
+    assert list(out["a"][0]) == ["x", "y"]
+
+
+def test_reorder_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        LocaleProcessor.reorder({}, {}, "random")
+
+
+# --- ARB locale ----------------------------------------------------------------------
+
+
+def test_set_arb_locale_inserts_first():
+    target = {"hi": "Olá"}
+    out = LocaleProcessor.set_arb_locale(target, "pt-BR")
+    assert out is target
+    assert list(target.items()) == [("@@locale", "pt_BR"), ("hi", "Olá")]
+
+
+def test_set_arb_locale_updates_in_place():
+    target = {"hi": "Salut", "@@locale": "en"}
+    LocaleProcessor.set_arb_locale(target, "fr")
+    assert list(target.items()) == [("hi", "Salut"), ("@@locale", "fr")]
