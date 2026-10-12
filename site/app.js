@@ -1,8 +1,7 @@
 (() => {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Menu bar clock and the terminal's login line, in the visitor's own locale.
-  const now = new Date();
+  // Menu bar clock, in the visitor's own locale.
   const clock = document.getElementById("clock");
   const tick = () => {
     const d = new Date();
@@ -11,15 +10,6 @@
   };
   tick();
   setInterval(tick, 15000);
-
-  const login = document.getElementById("login");
-  login.textContent = "Last login: " + now.toLocaleString(undefined, {
-    weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  }).replace(/,/g, "") + " on ttys001";
-
-  const h = now.getHours();
-  const part = h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Up late";
-  document.getElementById("greeting").textContent = `${part}. Welcome to LangSync.`;
 
   // Type each section's command once when it scrolls into view. The text is
   // already in the HTML, so crawlers and no-JS visitors read it as is.

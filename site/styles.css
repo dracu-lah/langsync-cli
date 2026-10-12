@@ -93,11 +93,10 @@ main { padding: 28px 16px 120px; }
 .ps { color: var(--dim); white-space: nowrap; }
 .cmd { color: var(--fg); }
 .line { margin-top: 2px; }
-.greet { color: var(--ok); margin-bottom: 26px !important; }
 
 /* Hero: copy left, recording right; the recording leads on phones */
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: clamp(24px, 4vw, 48px); align-items: center; }
-.hero-copy { order: -1; }
+.hero { padding-top: clamp(4px, 1vw, 12px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: clamp(24px, 4vw, 48px); align-items: start; }
+.hero-copy { order: -1; padding-top: clamp(8px, 2vw, 28px); }
 .hero-media { margin: 0; border-radius: var(--r-s); overflow: hidden; background: var(--term-bg); box-shadow: 0 0 0 1px var(--term-line); }
 .hero-media video { display: block; width: 100%; height: auto; aspect-ratio: 820 / 640; }
 h1 {
@@ -107,7 +106,7 @@ h2 { margin: 18px 0 8px; font: 600 clamp(24px, 2.6vw, 32px)/1.15 var(--sans); le
 h3 { margin: 0 0 10px; font: 600 15px/1.4 var(--sans); color: #f5f5fa; }
 h1 span { display: block; }
 @media (min-width: 861px) { h1 span { white-space: nowrap; } }
-.lede { margin: 0 0 22px !important; font: 400 17.5px/1.55 var(--sans); color: var(--muted); max-width: 46ch; }
+.lede { margin: 0 0 22px !important; font: 400 17.5px/1.55 var(--sans); color: var(--muted); max-width: 44ch; }
 .lede.small { font-size: 16.5px; }
 
 .install-line {
@@ -223,7 +222,6 @@ h1 span { display: block; }
   .term { font-size: 13px; padding: 16px 14px 22px; }
   .hero { grid-template-columns: 1fr; gap: 22px; }
   .hero-copy { order: 0; }
-  .greet { margin-bottom: 16px !important; }
   .features, .install-grid, .shots { grid-template-columns: minmax(0, 1fr); }
   .shots { gap: 12px; }
   .shots .tabs { flex-direction: row; width: fit-content; }
@@ -238,6 +236,8 @@ h1 span { display: block; }
 }
 @media (max-width: 420px) {
   .titlebar .title { font-size: 12px; }
-  .install-line code { font-size: 12.5px; }
+  .install-line { padding-left: 10px; gap: 6px; }
+  .install-line code { font-size: 11.5px; }
+  .install-line .ps { margin-right: 4px; }
   .copy span { display: none; }
 }
