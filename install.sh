@@ -1,6 +1,7 @@
 #!/bin/sh
 # LangSync Install Script
-# Can be executed via: curl -sSL https://raw.githubusercontent.com/dracu-lah/langsync-cli/main/install.sh | bash
+# Run with: curl -sSL langsync.pages.dev | bash
+# (the site serves this file from the main branch; the raw GitHub URL works too)
 
 set -e
 

@@ -127,8 +127,6 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
 
 # mypy
 .mypy_cache/
@@ -149,3 +147,6 @@ cython_debug/
 .idea/
 *.swp
 *.swo
+
+# Cloudflare wrangler local state
+.wrangler/

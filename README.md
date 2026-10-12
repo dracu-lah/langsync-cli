@@ -1,60 +1,107 @@
-# 🌍 LangSync
+<p align="center">
+  <img src="site/favicon.svg" width="72" alt="LangSync logo" />
+</p>
 
-**LangSync** is a high-performance, parallel I18N synchronization engine. It keeps your translation files perfectly in sync using a single source file as the "Source of Truth," leveraging batch translation to reduce network overhead by up to 98%.
+<h1 align="center">LangSync</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.0-magenta.svg)](pyproject.toml)
-[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+<p align="center">One source file, every language in sync. A CLI that fills missing translation keys,<br>re-translates edited ones and keeps ICU plurals valid, for any JSON i18n project.</p>
 
----
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue" /></a>
+  <a href="pyproject.toml"><img alt="Version" src="https://img.shields.io/badge/version-0.10.0-89dceb" /></a>
+  <img alt="Python 3.7+" src="https://img.shields.io/badge/python-3.7%2B-3776ab?logo=python&logoColor=white" />
+  <a href="https://github.com/dracu-lah/langsync-cli/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dracu-lah/langsync-cli/actions/workflows/ci.yml/badge.svg" /></a>
+</p>
 
-## ⚡ Quick Start
+<p align="center">
+  <a href="https://langsync.pages.dev"><img alt="Website" src="https://img.shields.io/badge/site-langsync.pages.dev-1e1e2e?logo=cloudflarepages&logoColor=white" /></a>
+  <a href="https://github.com/sponsors/dracu-lah"><img alt="Sponsor on GitHub" src="https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=githubsponsors&logoColor=white" /></a>
+  <a href="https://buymeacoffee.com/nevil.dev"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" /></a>
+</p>
 
-Install LangSync globally with a single command:
+<p align="center">
+  <img src="docs/media/demo.gif" width="90%" alt="langsync syncing three locales from one English file, then jq showing the French and German plurals intact, then langsync --check catching drift" />
+</p>
+
+## Install
 
 ```bash
-curl -sSL langsync.nevil.dev | bash
+curl -sSL langsync.pages.dev | bash
 ```
 
----
-
-## ✨ Key Features
-
--   **🚀 Parallel Execution:** Syncs multiple locales simultaneously using optimized thread pooling.
--   **📦 Batch Translation:** Groups keys into single requests, drastically reducing translation time and API calls.
--   **🛡️ Smart Protection:** Automatically detects and protects `{variable}` and `<tag>` placeholders.
--   **🔢 ICU MessageFormat Safe:** Messages with `plural` / `selectordinal` / `select` arguments are parsed into an AST; only the human-readable branch text is sent for translation, while argument names, branch keywords (`one`, `other`, `=1`, …) and the `#` placeholder are structurally locked. Every rebuilt message is re-validated with the parser before it is written — a translation that would break ICU syntax is rejected (and retried on the next run) instead of shipped.
--   **🩹 Corpus Validation & Self-Healing:** Every run parse-validates existing target strings against their source. A target that is broken ICU (e.g. a machine-translated `other` keyword from an older tool) is flagged as **Broken ICU** and automatically re-translated in place — even if the drift snapshot says it's unchanged. `--check` fails CI on broken strings, and source strings that look like ICU but don't parse are refused (and reported) rather than corrupted.
--   **🧩 Deep Structure Support:** Recurses into arrays and nested objects — strings inside a list (FAQs, feature cards, bullet lists) are translated element by element, not copied verbatim. Drift is tracked per array element (`items[0].title`).
--   **📝 Whitelist Support:** Keep brand names and technical terms (e.g., "SwayWM", "Lascade") untouched.
--   **📉 Rate Limit Resilience:** Intelligent "Cool Down" mechanism with exponential backoff for API stability.
--   **✨ UI-Aware:** Synchronizes punctuation (like trailing periods) to maintain professional UI consistency.
--   **🔍 Drift Detection:** A `.langsync-state.json` snapshot tracks every source value, so edited keys are re-translated and removed keys can be pruned on demand.
--   **🧹 Opt-in Pruning:** Use `--prune` to drop orphan keys; without it they're surfaced as a warning rather than silently deleted.
--   **💡 Actionable Errors:** Every error and warning is followed by a **How to fix** panel with the exact command to run — a missing locale dir prints the `mkdir` that creates it, a rate-limited run prints the config values to slow it down, failed keys print a `langsync --locales …` scoped to just the affected locales, and invalid ICU source strings print the before/after edit they need.
-
----
-
-## 🛠 Usage
-
-Run LangSync in your project root. It automatically detects your configuration.
+The script installs with [pipx](https://pipx.pypa.io) and falls back to `pip --user`. Run the same
+line again to update. To do it by hand:
 
 ```bash
-# Basic sync (using defaults)
+pipx install git+https://github.com/dracu-lah/langsync-cli.git
+```
+
+## Quick start
+
+Add a `langsync.json` to your project root, plus an empty `{}` file for each language you want:
+
+```json
+{ "source": "messages/en.json", "dir": "messages" }
+```
+
+```bash
+echo '{}' > messages/fr.json
 langsync
-
-# Sync specific locales
-langsync --locales es-ES,fr-FR
-
-# Force rewrite existing translations
-langsync --rewrite
 ```
 
----
+Every key in `en.json` now exists in `fr.json`, translated. Run it again after editing the source and
+only the new and changed keys go out.
 
-## ⚙️ Configuration
+## What it does
 
-LangSync searches for configuration in: `langsync.json`, `.langsync.json`, or `~/.langsync.json`.
+- **Only what changed.** A snapshot of every source string tells new keys from edited ones.
+  Translations you did not touch stay as they are.
+- **ICU plurals stay valid.** Only the words inside `plural`, `select` and `selectordinal` branches
+  are translated. Each rebuilt message is parsed before it is written, and a broken one is rejected.
+- **Repairs broken strings.** A target with broken ICU, often left by an older tool, is re-translated
+  in place on the next run.
+- **Batched and parallel.** Keys go out in batches and locales run side by side, with backoff when
+  the API rate limits.
+- **Placeholders untouched.** `{name}`, `<b>tags</b>` and whitelisted brand names come back exactly
+  as they went in. Arrays and nested objects are translated element by element.
+- **Errors with the fix.** Every error and warning ends with the command that fixes it, ready to
+  paste.
+
+<p align="center">
+  <img src="docs/media/plurals.png" width="45%" alt="The French and German cart strings with their ICU plural structure unchanged" />
+  <img src="docs/media/fix.png" width="45%" alt="Two errors, each followed by a How to fix box with the exact command to run" />
+</p>
+
+## Usage
+
+```bash
+langsync                     # sync every locale file in "dir"
+langsync --dry-run           # show what would change, write nothing
+langsync -l fr-FR,de-DE      # only these locales
+langsync --update-changed    # re-translate edited keys only, skip missing ones
+langsync --rewrite           # re-translate everything (replaces existing translations)
+langsync --prune             # remove keys the source no longer has
+langsync --check             # exit 1 on drift, for CI
+langsync -v                  # print every key as it is processed
+```
+
+### In CI
+
+`--check` writes nothing and exits 1 when any locale has missing, changed or orphan keys, so a pull
+request that edits `en.json` without syncing fails:
+
+```yaml
+- run: pipx install git+https://github.com/dracu-lah/langsync-cli.git
+- run: langsync --check
+```
+
+<p align="center">
+  <img src="docs/media/check.png" width="70%" alt="langsync --check reporting one missing and one changed key per locale" />
+</p>
+
+## Configuration
+
+LangSync reads the first of `langsync.json`, `.langsync.json` or `~/.langsync.json`. Flags override it.
 
 ```json
 {
@@ -66,25 +113,29 @@ LangSync searches for configuration in: `langsync.json`, `.langsync.json`, or `~
 }
 ```
 
----
+The snapshot lives in `<dir>/.langsync-state.json`. Commit it, so the next person's run knows which
+keys you already translated. On a first run inside a git repository, LangSync builds it from history.
 
-## 🧑‍💻 Development
+## Development
 
 ```bash
-# Setup environment
 pipenv install
 pipenv run pip install -e .
-
-# Run tests
 pipenv run pytest
 ```
 
----
+[CONTRIBUTING.md](CONTRIBUTING.md) has the ground rules. The website lives in [site/](site) and
+deploys to Cloudflare Pages.
 
-## 📜 Versioning & Contributions
+## Support
 
-This project follows **SemVer**.
-- **Source of Truth:** `pyproject.toml`
-- **Sync:** `src/langsync/__init__.py` must match `pyproject.toml`.
+- **Bugs and ideas:** [Issues](https://github.com/dracu-lah/langsync-cli/issues). Security reports
+  follow [SECURITY.md](SECURITY.md).
+- **Chip in:** LangSync is free and MIT licensed. If it saves you time,
+  [sponsor it on GitHub](https://github.com/sponsors/dracu-lah) or
+  [buy me a coffee](https://buymeacoffee.com/nevil.dev). A star helps the next person find it.
 
-Made with ❤️ for the I18N community.
+## License
+
+[MIT](LICENSE) © dracu-lah. Translations go through Google Translate via
+[deep-translator](https://github.com/nidhaloff/deep-translator).

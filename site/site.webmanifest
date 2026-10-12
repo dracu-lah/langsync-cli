@@ -1,0 +1,13 @@
+{
+  "name": "LangSync",
+  "short_name": "LangSync",
+  "description": "A CLI that keeps i18n JSON translation files in sync with one source file.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1e2e",
+  "theme_color": "#1e1e2e",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,41 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! Please check the problem still happens on the latest version (`curl -sSL langsync.pages.dev | bash` updates it).
+  - type: input
+    id: version
+    attributes:
+      label: LangSync version
+      description: The output of `langsync --version`.
+      placeholder: "0.10.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python
+      placeholder: "macOS 15, Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: A source string that shows it
+      description: The smallest piece of your source JSON (and the target, if relevant) that reproduces it.
+      render: json
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Run with `-v` and paste what it printed.
+      render: text

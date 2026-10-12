@@ -1,0 +1,4 @@
+# Cloudflare Pages: `npx wrangler pages deploy` publishes site/ as langsync.pages.dev
+name = "langsync"
+pages_build_output_dir = "site"
+compatibility_date = "2026-10-01"

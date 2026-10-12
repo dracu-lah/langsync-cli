@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LangSync: keep every i18n JSON file in sync from one source</title>
+<meta name="description" content="LangSync is a free, open source CLI that fills missing translation keys, re-translates edited ones and keeps ICU plurals valid. One command for any JSON i18n project.">
+<link rel="canonical" href="https://langsync.pages.dev/">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<meta name="author" content="Nevil">
+<meta name="theme-color" content="#ece9f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14152a" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LangSync">
+<meta property="og:url" content="https://langsync.pages.dev/">
+<meta property="og:title" content="LangSync: every locale in sync, one command">
+<meta property="og:description" content="Fills missing keys, re-translates edited ones and keeps ICU plurals valid. Free and open source.">
+<meta property="og:image" content="https://langsync.pages.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A macOS terminal running langsync, syncing three locales from one English source file">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="LangSync: every locale in sync, one command">
+<meta name="twitter:description" content="Fills missing keys, re-translates edited ones and keeps ICU plurals valid. Free and open source.">
+<meta name="twitter:image" content="https://langsync.pages.dev/og.png">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-512.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="preload" href="/fonts/jetbrains-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/geist-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="/styles.css">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "LangSync",
+  "url": "https://langsync.pages.dev/",
+  "description": "A command line tool that keeps i18n JSON translation files in sync with one source file, with ICU MessageFormat support, drift detection and a CI check mode.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Linux, Windows",
+  "softwareVersion": "0.10.0",
+  "license": "https://opensource.org/licenses/MIT",
+  "codeRepository": "https://github.com/dracu-lah/langsync-cli",
+  "downloadUrl": "https://github.com/dracu-lah/langsync-cli",
+  "installUrl": "https://langsync.pages.dev/install.sh",
+  "screenshot": "https://langsync.pages.dev/media/sync.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Nevil", "url": "https://github.com/dracu-lah" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="menubar">
+  <div class="menubar-left">
+    <i class="ph ph-translate menubar-mark" aria-hidden="true"></i>
+    <strong>LangSync</strong>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#see-it">Screenshots</a>
+      <a href="#install">Install</a>
+      <a href="#support">Support</a>
+    </nav>
+  </div>
+  <div class="menubar-right">
+    <a href="https://github.com/dracu-lah/langsync-cli" aria-label="LangSync on GitHub"><i class="ph ph-github-logo" aria-hidden="true"></i></a>
+    <time id="clock" aria-hidden="true"></time>
+  </div>
+</header>
+
+<main id="main">
+  <section class="window" aria-label="LangSync">
+    <div class="titlebar">
+      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="title">langsync: zsh</span>
+    </div>
+
+    <div class="term">
+      <p class="sys" id="login">Last login on ttys001</p>
+      <p class="line"><span class="ps">nevil@macbook ~ %</span> <span class="cmd" data-type>langsync --hello</span></p>
+      <p class="greet" id="greeting">Hello, welcome to LangSync.</p>
+
+      <div class="hero">
+        <figure class="hero-media">
+          <video autoplay muted loop playsinline preload="metadata" poster="/media/hero-sync.png" width="820" height="640" aria-label="Recording: langsync syncs three locales, prints the French and German plurals, then langsync --check catches drift">
+            <source src="/media/hero-demo.webm" type="video/webm">
+            <source src="/media/hero-demo.mp4" type="video/mp4">
+          </video>
+        </figure>
+        <div class="hero-copy">
+          <h1><span>One source file.</span> <span>Every language in sync.</span></h1>
+          <p class="lede">LangSync fills missing keys, re-translates edited ones and keeps ICU plurals intact. One command for any JSON i18n project.</p>
+          <div class="install-line" data-copy="curl -sSL langsync.pages.dev | bash">
+            <code><span class="ps">%</span> curl -sSL langsync.pages.dev | bash</code>
+            <button type="button" class="copy" aria-label="Copy install command"><i class="ph ph-copy" aria-hidden="true"></i><span>Copy</span></button>
+          </div>
+          <div class="ctas">
+            <a class="btn ghost" href="https://github.com/dracu-lah/langsync-cli"><i class="ph ph-github-logo" aria-hidden="true"></i>View on GitHub</a>
+          </div>
+        </div>
+      </div>
+
+      <section id="features" class="block" aria-labelledby="features-h">
+        <p class="line"><span class="ps">nevil@macbook ~ %</span> <span class="cmd" data-type>langsync --features</span></p>
+        <h2 id="features-h" class="vh">Features</h2>
+        <dl class="features">
+          <div><dt><i class="ph ph-git-diff" aria-hidden="true"></i>Only what changed</dt><dd>A snapshot of every source string tells new keys from edited ones. Translations you did not touch stay as they are.</dd></div>
+          <div><dt><i class="ph ph-brackets-curly" aria-hidden="true"></i>ICU plurals stay valid</dt><dd>Only the words inside plural and select branches go to the translator. Each rebuilt message is parsed before it is written.</dd></div>
+          <div><dt><i class="ph ph-first-aid" aria-hidden="true"></i>Repairs broken strings</dt><dd>A target with broken ICU, often left by an older tool, is re-translated in place on the next run.</dd></div>
+          <div><dt><i class="ph ph-lightning" aria-hidden="true"></i>Batched and parallel</dt><dd>Keys go out in batches and locales run side by side. When the API pushes back, it slows down and retries.</dd></div>
+          <div><dt><i class="ph ph-lock-key" aria-hidden="true"></i>Placeholders untouched</dt><dd><code>{name}</code>, <code>&lt;b&gt;</code> tags and the brand names you whitelist come back exactly as they went in.</dd></div>
+          <div><dt><i class="ph ph-wrench" aria-hidden="true"></i>Errors with the fix</dt><dd>Every error and warning ends with the command that fixes it, ready to paste.</dd></div>
+        </dl>
+      </section>
+
+      <section id="see-it" class="block" aria-labelledby="see-h">
+        <p class="line"><span class="ps">nevil@macbook ~ %</span> <span class="cmd" data-type>open screenshots/</span></p>
+        <h2 id="see-h" class="vh">Screenshots</h2>
+        <div class="shots">
+        <div class="tabs" role="tablist" aria-label="Screenshots" aria-orientation="vertical">
+          <button role="tab" id="t-sync" aria-controls="p-sync" aria-selected="true">Sync</button>
+          <button role="tab" id="t-plurals" aria-controls="p-plurals" aria-selected="false" tabindex="-1">Plurals</button>
+          <button role="tab" id="t-check" aria-controls="p-check" aria-selected="false" tabindex="-1">CI check</button>
+          <button role="tab" id="t-fix" aria-controls="p-fix" aria-selected="false" tabindex="-1">Errors</button>
+        </div>
+        <div class="panels">
+          <figure role="tabpanel" id="p-sync" aria-labelledby="t-sync">
+            <a href="/media/sync.png" aria-label="Open full size"><img src="/media/sync.png" width="1120" height="760" loading="lazy" decoding="async" alt="langsync output: a settings summary, a table showing de, es and fr all done, and Translated: 32, Failed: 0"></a>
+            <figcaption>First run: 32 keys across three locales, from one English file.</figcaption>
+          </figure>
+          <figure role="tabpanel" id="p-plurals" aria-labelledby="t-plurals" hidden>
+            <a href="/media/plurals.png" aria-label="Open full size"><img src="/media/plurals.png" width="1120" height="347" loading="lazy" decoding="async" alt="jq showing the French and German cart strings with the ICU plural structure, one and other branches and the # placeholder unchanged"></a>
+            <figcaption>The words change. <code>{count, plural, one {#…}}</code> does not.</figcaption>
+          </figure>
+          <figure role="tabpanel" id="p-check" aria-labelledby="t-check" hidden>
+            <a href="/media/check.png" aria-label="Open full size"><img src="/media/check.png" width="1120" height="760" loading="lazy" decoding="async" alt="langsync --check reporting drift: one missing and one changed key per locale, exit code 1"></a>
+            <figcaption><code>--check</code> exits 1 when a locale drifts, so CI catches it.</figcaption>
+          </figure>
+          <figure role="tabpanel" id="p-fix" aria-labelledby="t-fix" hidden>
+            <a href="/media/fix.png" aria-label="Open full size"><img src="/media/fix.png" width="1120" height="457" loading="lazy" decoding="async" alt="Two errors, a missing locale folder and a missing source file, each followed by a How to fix box with the exact command"></a>
+            <figcaption>Wrong path? It prints the <code>mkdir</code> or the <code>ls</code> you need.</figcaption>
+          </figure>
+        </div>
+        </div>
+      </section>
+
+      <section id="install" class="block" aria-labelledby="install-h">
+        <p class="line"><span class="ps">nevil@macbook ~ %</span> <span class="cmd" data-type>langsync --install</span></p>
+        <h2 id="install-h" class="vh">Install</h2>
+        <div class="install-grid">
+          <div class="steps">
+            <h3>Install</h3>
+            <div class="code" data-copy="curl -sSL langsync.pages.dev | bash"><pre><code><span class="c"># macOS and Linux, via pipx</span>
+curl -sSL langsync.pages.dev | bash</code></pre><button type="button" class="copy" aria-label="Copy"><i class="ph ph-copy" aria-hidden="true"></i></button></div>
+            <div class="code" data-copy="pipx install git+https://github.com/dracu-lah/langsync-cli.git"><pre><code><span class="c"># or by hand, anywhere Python 3 runs</span>
+pipx install git+https://github.com/dracu-lah/langsync-cli.git</code></pre><button type="button" class="copy" aria-label="Copy"><i class="ph ph-copy" aria-hidden="true"></i></button></div>
+            <h3>Point it at your source</h3>
+            <div class="code" data-copy='{ "source": "messages/en.json", "dir": "messages" }'><pre><code><span class="c"># langsync.json, in your project root</span>
+{ "source": "messages/en.json", "dir": "messages" }</code></pre><button type="button" class="copy" aria-label="Copy"><i class="ph ph-copy" aria-hidden="true"></i></button></div>
+          </div>
+          <div class="steps">
+            <h3>Run it</h3>
+            <div class="code"><pre><code>langsync                 <span class="c"># sync every locale in dir</span>
+langsync --dry-run       <span class="c"># show what would change</span>
+langsync -l fr,de        <span class="c"># only these locales</span>
+langsync --prune         <span class="c"># drop keys the source removed</span>
+langsync --check         <span class="c"># exit 1 on drift, for CI</span></code></pre></div>
+            <p class="note">Add an empty <code>{}</code> file per language, like <code>messages/fr.json</code>, and LangSync fills it. The <a href="https://github.com/dracu-lah/langsync-cli#readme">README</a> covers every flag and config key.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="support" class="block" aria-labelledby="support-h">
+        <p class="line"><span class="ps">nevil@macbook ~ %</span> <span class="cmd" data-type>langsync --support</span></p>
+        <h2 id="support-h">Free, MIT licensed, made by one person.</h2>
+        <p class="lede small">If it saves you an afternoon of copy and paste, a sponsor or a coffee keeps it going.</p>
+        <div class="ctas">
+          <a class="btn sponsor" href="https://github.com/sponsors/dracu-lah"><i class="ph ph-heart" aria-hidden="true"></i>Sponsor on GitHub</a>
+          <a class="btn coffee" href="https://buymeacoffee.com/nevil.dev"><i class="ph ph-coffee" aria-hidden="true"></i>Buy me a coffee</a>
+          <a class="btn ghost" href="https://github.com/dracu-lah/langsync-cli"><i class="ph ph-star" aria-hidden="true"></i>Star the repo</a>
+        </div>
+      </section>
+
+      <p class="line last"><span class="ps">nevil@macbook ~ %</span> <span class="cursor" aria-hidden="true"></span></p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>MIT License. Made by <a href="https://github.com/dracu-lah">Nevil</a>. <a href="https://github.com/dracu-lah/langsync-cli/issues">Report an issue</a>.</p>
+  </footer>
+</main>
+
+<nav class="dock" aria-label="Links">
+  <a href="#main" aria-label="Back to top"><span class="tip">Terminal</span><i class="ph ph-terminal-window" aria-hidden="true"></i></a>
+  <a href="https://github.com/dracu-lah/langsync-cli" aria-label="GitHub"><span class="tip">GitHub</span><i class="ph ph-github-logo" aria-hidden="true"></i></a>
+  <a href="https://github.com/dracu-lah/langsync-cli/issues" aria-label="Issues"><span class="tip">Issues</span><i class="ph ph-bug" aria-hidden="true"></i></a>
+  <span class="sep" aria-hidden="true"></span>
+  <a href="https://github.com/sponsors/dracu-lah" aria-label="Sponsor"><span class="tip">Sponsor</span><i class="ph ph-heart" aria-hidden="true"></i></a>
+  <a href="https://buymeacoffee.com/nevil.dev" aria-label="Buy me a coffee"><span class="tip">Coffee</span><i class="ph ph-coffee" aria-hidden="true"></i></a>
+</nav>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

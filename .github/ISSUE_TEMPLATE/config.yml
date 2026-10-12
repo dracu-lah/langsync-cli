@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/dracu-lah/langsync-cli/discussions
+    about: Ask how something works or share an idea in Discussions.
+  - name: Security problem
+    url: https://github.com/dracu-lah/langsync-cli/security/advisories/new
+    about: Please report security problems privately.
