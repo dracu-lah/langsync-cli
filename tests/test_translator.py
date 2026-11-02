@@ -78,6 +78,28 @@ def test_translation_service_init():
     service_same = TranslationService(source_lang="en", target_lang="en")
     assert service_same.translator is None
 
+@pytest.fixture(autouse=True)
+def _no_packing(monkeypatch):
+    from langsync.translator import TranslationService
+    monkeypatch.setattr(TranslationService, "pack_requests", False)
+
+
+def test_packing_sends_few_requests_and_survives_bad_split(mocker, monkeypatch):
+    from langsync.translator import TranslationService
+    monkeypatch.setattr(TranslationService, "pack_requests", True)
+    inst = mocker.patch("langsync.translator.GoogleTranslator").return_value
+    inst.translate.side_effect = lambda t: "\n".join(f"T{l}" for l in t.split("\n"))
+    service = TranslationService(source_lang="en", target_lang="de", whitelist=[])
+    out = service.translate_batch(["One", "Two", "Three"], delay=0)
+    assert out == ["TOne", "TTwo", "TThree"]
+    assert inst.translate.call_count == 1
+    # a reply that merges lines is never trusted: halve until it splits right
+    inst.translate.reset_mock()
+    inst.translate.side_effect = lambda t: "\n".join(f"T{l}" for l in t.split("\n")).replace("\n", " ") if t.count("\n") > 0 else f"T{t}"
+    out = service.translate_batch(["Four", "Five", "Six"], delay=0)
+    assert out == ["TFour", "TFive", "TSix"]
+
+
 def test_translate_batch(mocker):
     from langsync.translator import TranslationService
     mock_translator_class = mocker.patch("langsync.translator.GoogleTranslator")
@@ -97,8 +119,11 @@ def test_translate_batch_rate_limit(mocker):
     mock_instance.translate_batch.side_effect = Exception("429 Too Many Requests")
 
     service = TranslationService(source_lang="en", target_lang="es")
-    with pytest.raises(Exception, match="RATE_LIMIT_HIT"):
+    from langsync.translator import TranslationError
+    with pytest.raises(TranslationError) as exc_info:
         service.translate_batch(["Hello"], delay=0)
+    assert exc_info.value.kind == "rate_limit"
+    assert "429 Too Many Requests" in str(exc_info.value)  # full message kept
 
 
 # --- ICU MessageFormat safety ------------------------------------------------

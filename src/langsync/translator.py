@@ -6,7 +6,7 @@ from deep_translator.constants import (
     LIBRE_LANGUAGES_TO_CODES,
     MY_MEMORY_LANGUAGES_TO_CODES,
 )
-from . import icu
+from . import icu, ratelimit
 from .config import PLACEHOLDER_REGEX, WHITELIST as DEFAULT_WHITELIST
 
 try:  # The optional providers are looked up lazily so tests can patch them.
@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
 
 # Longest segment sent to the API in one piece. Google rejects 5000+ chars.
 MAX_SEGMENT_CHARS = 4500
+PACK_CHARS = 3500  # characters per packed request
 
 DEFAULT_LIBRE_URL = "https://libretranslate.com/"
 
@@ -42,10 +43,12 @@ _MARKER_RE = re.compile(r'(?:PH|WL|GL)\s?\d+\s?X', re.IGNORECASE)
 
 class TranslationError(Exception):
     """Raised when a translation request fails (network, rate limit, API error)."""
-    def __init__(self, message, kind="unknown"):
+    def __init__(self, message, kind="unknown", status=None, retry_after=None):
         super().__init__(message)
         # "rate_limit", "network", "api", "init", "icu", "placeholder", "unknown"
         self.kind = kind
+        self.status = status  # HTTP status when the provider exposed it
+        self.retry_after = retry_after  # seconds the server asked us to wait
 
 
 def _marker_pattern(marker):
@@ -161,6 +164,39 @@ def _classify_error(exc):
     if "timeout" in msg or "timed out" in msg or "connection" in msg or "network" in msg:
         return "network"
     return "api"
+
+
+def _error_info(exc):
+    """(kind, retry_after, hard_block, status) for a provider exception. The
+    response is read when the client kept it (requests errors do;
+    deep_translator's own exceptions do not)."""
+    kind = _classify_error(exc)
+    resp = getattr(exc, "response", None)
+    status = getattr(resp, "status_code", None) or getattr(exc, "status", None)
+    headers = getattr(resp, "headers", None) or getattr(exc, "headers", None) or {}
+    try:
+        raw = headers.get("Retry-After")
+    except AttributeError:
+        raw = None
+    retry_after = ratelimit.parse_retry_after(raw)
+    if retry_after is None:
+        retry_after = getattr(exc, "retry_after", None)
+    if status == 429 and kind == "api":
+        kind = "rate_limit"
+    return kind, retry_after, False, status
+
+
+def _gated(fn, scope=None):
+    """Run one provider request through the run's governor (if installed)."""
+    gov = ratelimit.current()
+    if gov is None:
+        return fn()
+    return gov.call(fn, lambda e: _error_info(e)[:3], scope)
+
+
+def _wrap_error(exc):
+    kind, retry_after, _, status = _error_info(exc)
+    return TranslationError(str(exc), kind=kind, status=status, retry_after=retry_after)
 
 
 # --- language codes ----------------------------------------------------------
@@ -425,6 +461,8 @@ def _assemble(pieces, finished):
 
 
 class TranslationService:
+    pack_requests = True  # Google only: several segments per request
+
     def __init__(self, source_lang='auto', target_lang='en', whitelist=None,
                  provider='google', api_key=None, provider_url=None, glossary=None):
         self.source_lang = source_lang if source_lang else 'auto'
@@ -435,6 +473,8 @@ class TranslationService:
         self.provider_url = provider_url
         self.glossary = dict(glossary) if glossary else {}
         self.translator = None
+        self._pack_ok = True
+        self._pack_misses = 0
         if not self._same_language(self.source_lang, self.target_lang):
             self.translator = self._build_translator()
 
@@ -565,9 +605,12 @@ class TranslationService:
             if seg["protected"] in sent:
                 continue
             try:
-                sent[seg["protected"]] = self.translator.translate(seg["protected"])
+                sent[seg["protected"]] = _gated(
+                    lambda p=seg["protected"]: self.translator.translate(p), self.target_lang)
+            except ratelimit.BreakerOpen:
+                raise
             except Exception as e:
-                raise TranslationError(str(e), kind=_classify_error(e)) from e
+                raise _wrap_error(e) from e
 
         if delay > 0 and sent:
             time.sleep(delay)
@@ -623,6 +666,54 @@ class TranslationService:
         except TranslationError:
             return text
 
+    def _request(self, text):
+        """One provider request, paced by the run's governor."""
+        return _gated(lambda: self.translator.translate(text), self.target_lang)
+
+    def _send(self, flat):
+        """Translate unique single-line segments with as few requests as possible.
+
+        The free Google endpoint throttles by request count, so segments are
+        packed (newline separated) into requests of up to PACK_CHARS characters.
+        A reply that does not split back into the same number of lines is never
+        trusted: the pack is halved and retried, and after three such misses the
+        service stops packing and sends one segment per request.
+        """
+        if self.provider != "google" or not self.pack_requests:
+            return _gated(lambda: self.translator.translate_batch(flat), self.target_lang)
+        if len(flat) < 2 or not self._pack_ok:
+            return [self._request(t) for t in flat]
+        out, chunk, size = [], [], 0
+        for text in flat:
+            if "\n" in text:
+                if chunk:
+                    out.extend(self._send_chunk(chunk))
+                    chunk, size = [], 0
+                out.append(self._request(text))
+                continue
+            if chunk and size + len(text) + 1 > PACK_CHARS:
+                out.extend(self._send_chunk(chunk))
+                chunk, size = [], 0
+            chunk.append(text)
+            size += len(text) + 1
+        if chunk:
+            out.extend(self._send_chunk(chunk))
+        return out
+
+    def _send_chunk(self, chunk):
+        if len(chunk) == 1 or not self._pack_ok:
+            return [self._request(t) for t in chunk]
+        reply = self._request("\n".join(chunk))
+        parts = reply.split("\n") if reply else []
+        if len(parts) == len(chunk):
+            self._pack_misses = 0
+            return parts
+        self._pack_misses += 1
+        if self._pack_misses >= 3:
+            self._pack_ok = False
+        mid = len(chunk) // 2
+        return self._send_chunk(chunk[:mid]) + self._send_chunk(chunk[mid:])
+
     def translate_batch(self, texts, delay=0.5):
         """Translates a list of strings. Raises TranslationError on full failure.
         Returns a list aligned with the input where each entry is either the translated
@@ -653,13 +744,11 @@ class TranslationService:
         translated_flat = []
         if flat:
             try:
-                translated_flat = self.translator.translate_batch(flat)
+                translated_flat = self._send(flat)
+            except ratelimit.BreakerOpen:
+                raise
             except Exception as e:
-                kind = _classify_error(e)
-                if kind == "rate_limit":
-                    # Preserve legacy message so cli rate-limit branch keeps matching.
-                    raise Exception("RATE_LIMIT_HIT") from e
-                raise TranslationError(str(e), kind=kind) from e
+                raise _wrap_error(e) from e
 
             if delay > 0:
                 time.sleep(delay)

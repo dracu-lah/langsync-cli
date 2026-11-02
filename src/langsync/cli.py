@@ -14,7 +14,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.json import JSON
 
-from . import icu
+from . import ratelimit, icu
 from . import fileio
 from . import validate
 from .translator import TranslationService, TranslationError, resolve_language
@@ -292,7 +292,8 @@ def _api_key(config, provider):
     return os.environ.get("LANGSYNC_API_KEY")
 
 
-def _translate_with_fallback(service, batch, retry_count, delay, result, progress, locale_task_id, verbose):
+def _translate_with_fallback(service, batch, retry_count, delay, result, progress, locale_task_id, verbose,
+                             service_retries=12):
     """Translate a batch. If batch fails, fall back to per-item translation.
     Mutates `result` (counts + issues). Returns list of (ref, translated_value)
     for successfully translated items. `ref` is (unit index, path, snapshot key).
@@ -302,22 +303,31 @@ def _translate_with_fallback(service, batch, retry_count, delay, result, progres
 
     translated_values = None
     last_batch_error = None
+    aborted = None
 
-    current_delay = delay
-    for attempt in range(retry_count):
+    # Waiting between attempts is the governor's job (shared pause, backoff,
+    # Retry-After); here we only decide whether another attempt makes sense.
+    attempt = 0
+    limit = retry_count
+    while attempt < limit:
+        attempt += 1
         try:
-            translated_values = service.translate_batch(values, current_delay)
+            translated_values = service.translate_batch(values, delay)
             if translated_values and len(translated_values) == len(values):
                 break
+        except ratelimit.BreakerOpen as e:
+            aborted = e
+            break
         except Exception as e:
             last_batch_error = e
-            if "RATE_LIMIT_HIT" in str(e):
-                cooldown = 2 * (attempt + 1)
-                time.sleep(cooldown)
-                current_delay = min(max(current_delay, 0.1) * 2, 2.0)
-            else:
-                time.sleep(1 * (attempt + 1))
             translated_values = None
+            if not _is_service_error(e):
+                break  # a content problem: retrying the same batch will not help
+            # The service is struggling: allow more patient retries (the
+            # governor spaces them out and the breaker bounds them).
+            limit = max(limit, service_retries)
+            if ratelimit.current() is None:
+                time.sleep(min(2 ** attempt, 8))
 
     succeeded = []
 
@@ -327,10 +337,17 @@ def _translate_with_fallback(service, batch, retry_count, delay, result, progres
                 rf"[dim]\[{result.locale}][/dim] Translated [blue]{ref[2]}[/blue] -> [italic]{value}[/italic]"
             )
 
+    def _fail_all(pairs, kind, message):
+        """Give up on these items without calling the translator again."""
+        for ref, _ in pairs:
+            result.mark_failed(ref[2])
+            progress.update(locale_task_id, advance=1)
+        result.add_issue(kind, f"{len(pairs)} item(s) not translated ({message})")
+
     def _one_by_one(pairs):
-        for ref, src_val in pairs:
+        for n, (ref, src_val) in enumerate(pairs):
             try:
-                trans_val = service.translate_one(src_val, delay=current_delay)
+                trans_val = service.translate_one(src_val, delay=delay)
                 # A translation identical to the source is valid ("OK", "Email",
                 # brand names) — only an empty answer is a failure.
                 if isinstance(trans_val, str) and (trans_val.strip() or not src_val.strip()):
@@ -339,13 +356,21 @@ def _translate_with_fallback(service, batch, retry_count, delay, result, progres
                 else:
                     result.mark_failed(ref[2])
                     result.add_issue("empty", f"empty response for '{ref[2]}'")
+                progress.update(locale_task_id, advance=1)
+            except ratelimit.BreakerOpen as e:
+                _fail_all(pairs[n:], "aborted", str(e))
+                return
             except TranslationError as e:
+                if e.kind in ratelimit.SERVICE_KINDS:
+                    # The service, not the item, is the problem: stop here.
+                    _fail_all(pairs[n:], e.kind, str(e))
+                    return
                 result.mark_failed(ref[2])
                 result.add_issue(e.kind, f"'{ref[2]}': {e}")
+                progress.update(locale_task_id, advance=1)
             except Exception as e:
                 result.mark_failed(ref[2])
-                result.add_issue("rate_limit" if "RATE_LIMIT_HIT" in str(e) else "unknown", f"'{ref[2]}': {e}")
-            finally:
+                result.add_issue("unknown", f"'{ref[2]}': {e}")
                 progress.update(locale_task_id, advance=1)
 
     if translated_values and len(translated_values) == len(values):
@@ -360,21 +385,32 @@ def _translate_with_fallback(service, batch, retry_count, delay, result, progres
         _one_by_one(per_item_failures)
         return succeeded
 
-    # Batch failed entirely after retries — fall back to per-item.
+    pairs = list(zip(refs, values))
+    if aborted is not None:
+        _fail_all(pairs, "aborted", str(aborted))
+        return succeeded
+    if last_batch_error is not None and _is_service_error(last_batch_error):
+        # Rate limit or network trouble: per-item calls would only add load.
+        kind = last_batch_error.kind if isinstance(last_batch_error, TranslationError) else "network"
+        _fail_all(pairs, kind, str(last_batch_error))
+        return succeeded
+
+    # Batch failed for a content reason — per-item fallback is the right tool.
     err_kind = "unknown"
     err_msg = "batch translation failed"
     if isinstance(last_batch_error, TranslationError):
         err_kind = last_batch_error.kind
         err_msg = str(last_batch_error)
-    elif last_batch_error and "RATE_LIMIT_HIT" in str(last_batch_error):
-        err_kind = "rate_limit"
-        err_msg = "rate limit exceeded"
     elif last_batch_error:
         err_msg = str(last_batch_error)
 
     result.add_issue(err_kind, f"batch of {len(values)} fell back to single-item ({err_msg})")
-    _one_by_one(list(zip(refs, values)))
+    _one_by_one(pairs)
     return succeeded
+
+
+def _is_service_error(exc):
+    return isinstance(exc, TranslationError) and exc.kind in ratelimit.SERVICE_KINDS
 
 
 def _translate_items(items, make_service, config, result, progress, locale_task_id, verbose):
@@ -384,6 +420,7 @@ def _translate_items(items, make_service, config, result, progress, locale_task_
     batch_size = max(1, int(config.get("batch_size") or 25))
     delay = config.get("delay_between_requests", 0.2)
     retry_count = max(1, int(config.get("retry_count") or 3))
+    service_retries = max(retry_count, int(config.get("service_retries") or 12))
     batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
     workers = max(1, min(int(config.get("max_workers_per_locale") or 1), len(batches)))
 
@@ -399,6 +436,7 @@ def _translate_items(items, make_service, config, result, progress, locale_task_
     def run(batch):
         return _translate_with_fallback(
             service(), batch, retry_count, delay, result, progress, locale_task_id, verbose,
+            service_retries,
         )
 
     succeeded = []
@@ -660,9 +698,12 @@ def _render_issues_panel(results):
         kinds = Counter(kind for kind, _ in r.issues)
         cause_summary = ", ".join(f"{k} x{v}" for k, v in kinds.most_common())
 
-        sample_messages = [_truncate_issue(msg) for _, msg in r.issues[:2]]
-        if len(r.issues) > 2:
-            sample_messages.append(f"... and {len(r.issues) - 2} more")
+        counts = Counter(_truncate_issue(msg) for _, msg in r.issues)
+        top = counts.most_common(2)
+        sample_messages = [m if n == 1 else f"{m} (x{n})" for m, n in top]
+        rest = len(r.issues) - sum(n for _, n in top)
+        if rest > 0:
+            sample_messages.append(f"... and {rest} more")
         details = "\n".join(sample_messages) if sample_messages else "—"
 
         table.add_row(
@@ -699,8 +740,9 @@ def _issue_fixes(results, config_label, layout, provider):
 
     if all_kinds.get("rate_limit"):
         fixes.append((
-            f"The translator rate-limited the run. Slow it down in [bold]{config_label}[/bold]:",
-            '"delay_between_requests": 0.5, "max_parallel_locales": 1, "max_workers_per_locale": 1',
+            f"The translator rate-limited the run. Lower the request rate in [bold]{config_label}[/bold] "
+            "(all locales share one limiter), then re-run:",
+            '"requests_per_second": 2',
         ))
         retry_reasons.append("rate limits")
     if all_kinds.get("network"):
@@ -1319,6 +1361,15 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
 
         results = []
         max_parallel_locales = max(1, int(config_data.get('max_parallel_locales') or 3))
+        governor = ratelimit.Governor(
+            rate=config_data.get('requests_per_second', 4),
+            max_in_flight=config_data.get('max_in_flight')
+            or max_parallel_locales * max(1, int(config_data.get('max_workers_per_locale') or 1)),
+            backoff_max=config_data.get('backoff_max', 60),
+            breaker_threshold=config_data.get('breaker_threshold', 8),
+        )
+        governor.min_scopes = max(1, min(3, len(target_locales)))
+        ratelimit.install(None if dry_run or check or stats else governor)
 
         with Progress(
             SpinnerColumn(),
@@ -1513,7 +1564,9 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
         # Persist a fresh snapshot. Each locale only advances the keys it really
         # synced: a locale skipped by --locales, a failed key, or an unreadable
         # file stays "behind" so its next run still sees the source edits.
-        if not dry_run:
+        nothing_saved = governor.open_reason and not any(
+            r.translated or r.copied or r.pruned for r in results)
+        if not dry_run and not nothing_saved:
             try:
                 current_hashes = _prefixed_hashes(units)
                 failed = {}
@@ -1675,12 +1728,18 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
         if check and drift_total > 0:
             console.print("[dim]--check exits 1 because the locales are not in sync (see the steps above).[/dim]")
             sys.exit(1)
+        if not dry_run and governor.open_reason:
+            console.print(f"[bold red]{governor.open_reason}[/bold red]")
+            console.print("[dim]Exit code 3: the translator refused the run. Nothing failed was saved; re-run later.[/dim]")
+            sys.exit(3)
         if not dry_run and (total_failed or total_io):
             # A partial sync is not a success for scripts and CI.
             sys.exit(1)
 
     except KeyboardInterrupt:
         handle_sigint(None, None)
+    finally:
+        ratelimit.install(None)
 
 
 if __name__ == "__main__":

@@ -49,10 +49,10 @@ PLACEHOLDER_REGEX = re.compile(
 )
 
 # Concurrency settings
-MAX_WORKERS_PER_LOCALE = 2
-MAX_PARALLEL_LOCALES = 3
+MAX_WORKERS_PER_LOCALE = 1
+MAX_PARALLEL_LOCALES = 1
 DELAY_BETWEEN_REQUESTS = 0.2
-BATCH_SIZE = 25
+BATCH_SIZE = 100
 RETRY_COUNT = 3
 
 # Translation providers (see translator.TranslationService)
@@ -80,6 +80,11 @@ def get_default_config():
         'delay_between_requests': DELAY_BETWEEN_REQUESTS,
         'batch_size': BATCH_SIZE,
         'retry_count': RETRY_COUNT,
+        'service_retries': 12,        # attempts per batch when rate limited or offline
+        'requests_per_second': 1,     # shared by every locale and worker; 0 = unlimited
+        'max_in_flight': None,        # None: parallel locales x workers per locale
+        'backoff_max': 300,           # cap of the shared exponential backoff, seconds
+        'breaker_threshold': 40,      # straight failures before the run aborts; 0 = never
         'whitelist': list(WHITELIST),
         # Optional: override snapshot location. Defaults to <dir>/.langsync-state.json.
         'state_file': None,
@@ -184,6 +189,17 @@ _VALIDATORS = {
     'max_parallel_locales': (_is_positive_int, "a positive integer"),
     'batch_size': (_is_positive_int, "a positive integer"),
     'retry_count': (_is_positive_int, "a positive integer"),
+    'service_retries': (_is_positive_int, "a positive integer"),
+    'max_in_flight': (_is_positive_int, "a positive integer"),
+    'breaker_threshold': (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a non-negative integer"),
+    'requests_per_second': (
+        lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
+        "a non-negative number",
+    ),
+    'backoff_max': (
+        lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0,
+        "a positive number",
+    ),
     'delay_between_requests': (
         lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
         "a non-negative number",
