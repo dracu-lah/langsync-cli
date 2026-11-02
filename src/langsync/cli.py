@@ -202,7 +202,7 @@ def _print_hint(hint=None):
 
 
 def _slow_tick(progress, began):
-    """Print the log hint once if the run has been going past the slow threshold."""
+    """Print the log hint once if nothing has finished since `began` for the slow threshold."""
     hint = runlog.slow_hint(time.monotonic() - began)
     if hint:
         progress.console.print(hint, markup=False, highlight=False)
@@ -1429,6 +1429,8 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
                 run_began = time.monotonic()
                 while pending:
                     done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+                    if done:
+                        run_began = time.monotonic()  # a locale finished: progress was made
                     _slow_tick(progress, run_began)
                     for future in done:
                         try:

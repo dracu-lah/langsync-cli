@@ -56,7 +56,9 @@ what happened. No "re-run with --debug" step.
   (`--debug`, run start/end, per-locale, hint on `_die`/exit 1/3, unhandled exception, `report` command
   via `cli.entry`, which pyproject now points at), README "Reporting a problem", bug_report.yml field.
 - Slow-run hint wired (uncommitted, 387 tests pass): `cli._slow_tick` called every 1 s from the locale
-  `wait()` loop in `main`; test in `tests/test_runlog.py`. Threshold is 60 s since run start.
-- Not done: tokens field (providers do not return them); `model` is always empty (service has no model attr).
+  `wait()` loop in `main`; test in `tests/test_runlog.py`. Threshold is 60 s since the last locale finished (or run start).
+- Dropped the `tokens` and `model` log fields: providers are machine-translation APIs (Google, DeepL,
+  Microsoft, Libre), not LLMs, so neither exists.
+- Open questions answered with the defaults (log on by default, `LANGSYNC_NO_LOG=1` off, `report` file only).
 - Gotcha: `console.file` is switched to stderr under `--json`; keep log output off stdout.
 - Gotcha: CliRunner mixes stderr into `result.stdout`; tests must parse JSON with `raw_decode`.

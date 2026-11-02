@@ -173,14 +173,12 @@ def log_text(label, text):
 
 
 @_safe
-def request(provider, model, texts, chars, packed, latency_ms, status=None, retry=0,
-            backoff_wait=None, tokens=None, error=None):
-    fields = {"provider": provider, "model": model, "texts": texts, "chars": chars,
+def request(provider, texts, chars, packed, latency_ms, status=None, retry=0,
+            backoff_wait=None, error=None):
+    fields = {"provider": provider, "texts": texts, "chars": chars,
               "packed": packed, "latency_ms": round(latency_ms), "status": status, "retry": retry}
     if backoff_wait:
         fields["backoff_wait"] = backoff_wait
-    if tokens is not None:
-        fields["tokens"] = tokens
     if error:
         fields["error"] = error
     with _lock:

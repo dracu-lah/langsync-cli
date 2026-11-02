@@ -53,7 +53,7 @@ def test_redacts_keys_env_values_and_home(monkeypatch):
 def test_error_field_is_redacted_in_file(tmp_path, monkeypatch):
     monkeypatch.setenv("DEEPL_API_KEY", "sekret-value-123")
     runlog.start()
-    runlog.request("deepl", "m", 1, 5, False, 10, status=403, error="bad sekret-value-123")
+    runlog.request("deepl", 1, 5, False, 10, status=403, error="bad sekret-value-123")
     flush()
     assert "sekret-value-123" not in read_log(tmp_path)
 
@@ -88,7 +88,7 @@ def test_unwritable_log_dir_does_not_break_run(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(blocker))  # a file, so makedirs fails
     runlog.start()
     runlog.info("still fine")
-    runlog.request("google", "web", 1, 2, False, 5)
+    runlog.request("google", 1, 2, False, 5)
     runlog.finish(0)
     assert runlog.path() is None
 
@@ -113,11 +113,11 @@ def test_rotation_keeps_three_files(tmp_path, monkeypatch):
 def test_request_and_slowest_five(tmp_path):
     runlog.start()
     for ms in (10, 900, 30, 700, 50, 800, 20, 600):
-        runlog.request("google", "web", 4, 120, True, ms, status=200)
+        runlog.request("google", 4, 120, True, ms, status=200)
     runlog.finish(0, translated=8)
     flush()
     text = read_log(tmp_path)
-    assert "request provider=google model=web texts=4 chars=120 packed=true latency_ms=900" in text
+    assert "request provider=google texts=4 chars=120 packed=true latency_ms=900" in text
     slow = [ln for ln in text.splitlines() if " slowest " in ln]
     assert len(slow) == 5
     assert "rank=1" in slow[0] and "latency_ms=900" in slow[0]

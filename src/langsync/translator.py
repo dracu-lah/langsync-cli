@@ -196,7 +196,7 @@ def _gated(fn, scope=None, meta=None):
     retry = gov.failures if gov is not None else 0
 
     def logged(error=None, status=None):
-        runlog.request(meta.get("provider"), meta.get("model"), meta.get("texts", 1),
+        runlog.request(meta.get("provider"), meta.get("texts", 1),
                        meta.get("chars", 0), meta.get("packed", False),
                        (time.monotonic() - started) * 1000, status=status, retry=retry,
                        error=error)
