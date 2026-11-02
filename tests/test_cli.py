@@ -193,7 +193,8 @@ def test_json_report_on_stdout(project):
     result = runner.invoke(cli.main, [*flat_args(), "--check", "--json"], catch_exceptions=False)
     assert result.exit_code == 1
     start = result.stdout.index("{")
-    report = json.loads(result.stdout[start:])
+    # CliRunner mixes stderr into stdout; decode only the JSON object.
+    report, _ = json.JSONDecoder().raw_decode(result.stdout[start:])
     assert report["in_sync"] is False
     assert report["locales"][0]["locale"] == "fr"
     assert report["locales"][0]["missing"] == 1
@@ -267,3 +268,16 @@ def test_invalid_target_json_fails_check(project):
     (project / "messages/fr.json").write_text("{ nope")
     result = run(*flat_args(), "--check")
     assert result.exit_code == 1
+
+
+def test_run_is_logged_and_report_written(project, tmp_path):
+    write(project / "messages/en.json", {"a": "Secret greeting"})
+    write(project / "messages/fr.json", {})
+    run_ = CliRunner()
+    run_.invoke(cli.main, [*flat_args(), "--check"], catch_exceptions=False)
+    out = tmp_path / "r.txt"
+    result = run_.invoke(cli.report_command, ["-o", str(out)], catch_exceptions=False)
+    assert result.exit_code == 0 and "Redaction pass" in result.output
+    body = out.read_text()
+    assert "run_start" in body and "run_end exit=1" in body
+    assert "Secret greeting" not in body  # no source or translated text in the log

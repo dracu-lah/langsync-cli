@@ -6,7 +6,7 @@ from deep_translator.constants import (
     LIBRE_LANGUAGES_TO_CODES,
     MY_MEMORY_LANGUAGES_TO_CODES,
 )
-from . import icu, ratelimit
+from . import icu, ratelimit, runlog
 from .config import PLACEHOLDER_REGEX, WHITELIST as DEFAULT_WHITELIST
 
 try:  # The optional providers are looked up lazily so tests can patch them.
@@ -186,12 +186,28 @@ def _error_info(exc):
     return kind, retry_after, False, status
 
 
-def _gated(fn, scope=None):
-    """Run one provider request through the run's governor (if installed)."""
+def _gated(fn, scope=None, meta=None):
+    """Run one provider request through the run's governor (if installed).
+    `meta` (provider, texts, chars, packed) feeds the always-on run log: sizes
+    only, never the text itself."""
     gov = ratelimit.current()
-    if gov is None:
-        return fn()
-    return gov.call(fn, lambda e: _error_info(e)[:3], scope)
+    started = time.monotonic()
+    meta = meta or {}
+    retry = gov.failures if gov is not None else 0
+
+    def logged(error=None, status=None):
+        runlog.request(meta.get("provider"), meta.get("model"), meta.get("texts", 1),
+                       meta.get("chars", 0), meta.get("packed", False),
+                       (time.monotonic() - started) * 1000, status=status, retry=retry,
+                       error=error)
+
+    try:
+        out = fn() if gov is None else gov.call(fn, lambda e: _error_info(e)[:3], scope)
+    except Exception as exc:
+        logged(error=f"{type(exc).__name__}: {exc}", status=_error_info(exc)[3])
+        raise
+    logged(status=200)
+    return out
 
 
 def _wrap_error(exc):
@@ -668,7 +684,11 @@ class TranslationService:
 
     def _request(self, text):
         """One provider request, paced by the run's governor."""
-        return _gated(lambda: self.translator.translate(text), self.target_lang)
+        return _gated(lambda: self.translator.translate(text), self.target_lang,
+                      self._meta(1, len(text), "\n" in text))
+
+    def _meta(self, texts, chars, packed):
+        return {"provider": self.provider, "texts": texts, "chars": chars, "packed": packed}
 
     def _send(self, flat):
         """Translate unique single-line segments with as few requests as possible.
@@ -680,7 +700,8 @@ class TranslationService:
         service stops packing and sends one segment per request.
         """
         if self.provider != "google" or not self.pack_requests:
-            return _gated(lambda: self.translator.translate_batch(flat), self.target_lang)
+            return _gated(lambda: self.translator.translate_batch(flat), self.target_lang,
+                          self._meta(len(flat), sum(len(t) for t in flat), False))
         if len(flat) < 2 or not self._pack_ok:
             return [self._request(t) for t in flat]
         out, chunk, size = [], [], 0

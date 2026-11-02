@@ -7,14 +7,14 @@ import time
 import signal
 import threading
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 from rich.table import Table
 from rich.panel import Panel
 from rich.json import JSON
 
-from . import ratelimit, icu
+from . import ratelimit, icu, runlog
 from . import fileio
 from . import validate
 from .translator import TranslationService, TranslationError, resolve_language
@@ -194,12 +194,28 @@ def _print_fixes(*fixes, title="How to fix"):
     ))
 
 
+def _print_hint(hint=None):
+    """Point at the run log (stderr, so --json stdout stays clean)."""
+    hint = hint or runlog.hint()
+    if hint:
+        click.echo(hint, err=True)
+
+
+def _slow_tick(progress, began):
+    """Print the log hint once if the run has been going past the slow threshold."""
+    hint = runlog.slow_hint(time.monotonic() - began)
+    if hint:
+        progress.console.print(hint, markup=False, highlight=False)
+
+
 def _die(message, *fixes, detail=None, code=1):
     """Print an error, the way to fix it, and exit."""
     console.print(f"[bold red]✖ {message}[/bold red]")
     if detail:
         console.print(f"[dim]{detail}[/dim]")
     _print_fixes(*fixes)
+    if code != 2:  # 2 is a usage mistake; the log would not help
+        _print_hint()
     sys.exit(code)
 
 
@@ -459,10 +475,15 @@ def _translate_items(items, make_service, config, result, progress, locale_task_
 
 def process_locale(locale, units, layout, progress, main_task_id, config, *, snapshot, opts):
     result = LocaleResult(locale)
+    began = time.monotonic()
     try:
         _process_locale(result, units, layout, progress, config, snapshot, opts)
     finally:
         progress.update(main_task_id, advance=1)
+        runlog.locale_done(locale, result.translated, result.failed, result.copied,
+                           result.orphan_count, len(result.suspects), time.monotonic() - began)
+        for key_id, _problem in list(result.suspects):
+            runlog.placeholder_problem(locale, key_id)
     return result
 
 
@@ -1138,9 +1159,10 @@ def _load_baseline(state_path, units, layout):
 @click.option('--json', 'json_output', is_flag=True, help='Print a machine-readable JSON report on stdout; the human output goes to stderr.')
 @click.option('-y', '--yes', is_flag=True, help='Never prompt. Without a config, fail instead of asking (implied when stdin is not a terminal).')
 @click.option('-v', '--verbose', is_flag=True, help='Print each translation, copy, and orphan path as it is processed.')
+@click.option('--debug', is_flag=True, help='Also mirror the run log (DEBUG) to stderr. Same as LANGSYNC_DEBUG=1.')
 @click.version_option(__version__, prog_name="langsync")
 def main(source, dir, locales, add_locales, config, provider, rewrite, update_changed, prune,
-         dry_run, check, stats, json_output, yes, verbose):
+         dry_run, check, stats, json_output, yes, verbose, debug):
     """Modern I18N sync tool with parallel translation and source-drift detection.
 
     On each run, langsync compares the source locale file against the per-locale
@@ -1187,6 +1209,16 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
     # stderr. None restores rich's default of following the current sys.stdout.
     console.file = sys.stderr if json_output else None
     poll_update = start_update_check() if not json_output else (lambda _t: None)
+    runlog.start(
+        debug=debug,
+        flags=",".join(n for n, v in (
+            ("rewrite", rewrite), ("update_changed", update_changed), ("prune", prune),
+            ("dry_run", dry_run), ("check", check), ("stats", stats), ("json", json_output),
+            ("yes", yes), ("verbose", verbose), ("locales", locales), ("add", add_locales),
+        ) if v) or "none",
+        provider_flag=provider, config=config and os.path.basename(config),
+    )
+    exit_code = 0
 
     if rewrite and update_changed:
         _die(
@@ -1369,6 +1401,8 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
             breaker_threshold=config_data.get('breaker_threshold', 8),
         )
         governor.min_scopes = max(1, min(3, len(target_locales)))
+        runlog.info("config", config_file=cfg_label, provider=provider, locales=len(target_locales),
+                    keys=sum(_count_strings(u.data) for u in units) if units else 0)
         ratelimit.install(None if dry_run or check or stats else governor)
 
         with Progress(
@@ -1391,14 +1425,19 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
                     for locale in target_locales
                 }
 
-                for future in as_completed(futures):
-                    try:
-                        results.append(future.result())
-                    except Exception as e:
-                        crash = LocaleResult(futures[future])
-                        crash.failed_prefixes.update(unit.prefix for unit in units)
-                        crash.add_issue("crash", f"locale worker crashed: {e}")
-                        results.append(crash)
+                pending = set(futures)
+                run_began = time.monotonic()
+                while pending:
+                    done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+                    _slow_tick(progress, run_began)
+                    for future in done:
+                        try:
+                            results.append(future.result())
+                        except Exception as e:
+                            crash = LocaleResult(futures[future])
+                            crash.failed_prefixes.update(unit.prefix for unit in units)
+                            crash.add_issue("crash", f"locale worker crashed: {e}")
+                            results.append(crash)
 
         sorted_results = sorted(results, key=lambda x: x.locale)
 
@@ -1726,21 +1765,67 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
         _print_update_banner(poll_update(0.4))
 
         if check and drift_total > 0:
-            console.print("[dim]--check exits 1 because the locales are not in sync (see the steps above).[/dim]")
+            click.echo("--check exits 1 because the locales are not in sync (see the steps above).", err=True)
             sys.exit(1)
         if not dry_run and governor.open_reason:
             console.print(f"[bold red]{governor.open_reason}[/bold red]")
             console.print("[dim]Exit code 3: the translator refused the run. Nothing failed was saved; re-run later.[/dim]")
+            _print_hint()
             sys.exit(3)
         if not dry_run and (total_failed or total_io):
             # A partial sync is not a success for scripts and CI.
+            _print_hint()
             sys.exit(1)
 
     except KeyboardInterrupt:
+        exit_code = 130
         handle_sigint(None, None)
+    except SystemExit as e:
+        exit_code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        raise
+    except Exception as e:
+        exit_code = 1
+        runlog.exception(e)
+        click.echo(f"langsync hit an unexpected error: {type(e).__name__}", err=True)
+        _print_hint()
+        sys.exit(1)
     finally:
         ratelimit.install(None)
+        runlog.finish(exit_code)
+        runlog.stop()
+
+
+@click.command(name="report", context_settings=dict(help_option_names=['-h', '--help']))
+@click.option('--last', default=1, show_default=True, help='Include the last N runs.')
+@click.option('--run', 'run_id', help='Include one run by its id.')
+@click.option('-o', '--output', default='langsync-report.txt', show_default=True, help='Where to write the report.')
+def report_command(last, run_id, output):
+    """Write a shareable report of the last run (local file, never uploaded).
+
+    The report holds the langsync version, Python and OS, and that run's log
+    lines. Source and translated text, API keys and file contents are never
+    logged. Read the file, then attach it to an issue.
+    """
+    path = runlog.log_path()
+    click.echo(f"Log file: {path}")
+    text, removed, ids = runlog.build_report(run=run_id, last=last)
+    if not ids:
+        click.echo("No runs in the log yet. Run langsync first.")
+        sys.exit(1)
+    with open(output, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    click.echo(f"Wrote {output} ({', '.join(ids)}).")
+    click.echo(f"Redaction pass: {removed} line{'s' if removed != 1 else ''} had secrets or home paths removed.")
+    click.echo("Review the file, then attach it to your issue.")
+
+
+def entry():
+    """Console-script entry: `langsync report ...` or the normal sync command."""
+    if sys.argv[1:2] == ["report"]:
+        report_command(args=sys.argv[2:], prog_name="langsync report")
+    else:
+        main()
 
 
 if __name__ == "__main__":
-    main()
+    entry()

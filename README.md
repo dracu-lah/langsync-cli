@@ -152,6 +152,20 @@ The snapshot lives in `<dir>/.langsync-state.json` (for a `pattern`, in the fold
 folders). Commit it, so the next person's run knows which keys you already translated. On a first run
 inside a git repository, LangSync builds it from history.
 
+## Reporting a problem
+
+Every run appends metadata (timings, counts, status codes, never your text or API keys) to
+`~/.local/state/langsync/langsync.log` (or `$XDG_STATE_HOME/langsync/`), 1 MB x 3 files. When a run is
+slow or fails, run:
+
+```bash
+langsync report            # writes langsync-report.txt for the last run (--last N, --run ID)
+```
+
+Read the file, then attach it to an [issue](https://github.com/dracu-lah/langsync-cli/issues).
+Nothing is uploaded. `--debug` (or `LANGSYNC_DEBUG=1`) also mirrors the log to stderr;
+`LANGSYNC_NO_LOG=1` turns the log off.
+
 ## Development
 
 ```bash

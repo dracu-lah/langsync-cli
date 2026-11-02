@@ -39,3 +39,9 @@ body:
       label: Output
       description: Run with `-v` and paste what it printed.
       render: text
+  - type: textarea
+    id: report
+    attributes:
+      label: Run report
+      description: Run `langsync report`, read the `langsync-report.txt` it writes, and paste its contents (or drag the file in). It holds no translated text or API keys.
+      render: text

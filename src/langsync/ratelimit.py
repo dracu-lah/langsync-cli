@@ -16,6 +16,8 @@ import threading
 import time
 from email.utils import parsedate_to_datetime
 
+from . import runlog
+
 # Kinds of failure that mean "the service is unhappy", not "this item is bad".
 SERVICE_KINDS = ("rate_limit", "network")
 
@@ -135,6 +137,8 @@ class Governor:
             if retry_after:
                 wait = max(wait, min(retry_after, self.retry_after_cap))
             self._pause_until = max(self._pause_until, time.monotonic() + wait)
+            runlog.governor_wait(kind, wait, f"failure {self.failures}"
+                                 + (f", retry-after {retry_after}" if retry_after else ""))
             if hard:
                 self.blocked = True
             if self.threshold and (hard or (self.failures >= self.threshold
@@ -145,6 +149,7 @@ class Governor:
                     f"run aborted: translator {what} {self.failures} "
                     f"request{'s' if self.failures != 1 else ''} in a row ({kind})"
                 )
+                runlog.governor_open(self.open_reason)
 
     def call(self, fn, classify, scope=None):
         """Run one provider request through the gate. `classify(exc)` returns
