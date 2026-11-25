@@ -78,3 +78,14 @@ def test_check_translation_non_strings():
     assert check_translation(None, "x") == []
     assert check_translation("x", 5) == []
     assert check_translation(["a"], ["b"]) == []
+
+
+def test_percent_before_an_icu_argument_is_not_a_ruby_placeholder():
+    # Turkish writes the sign first: "%50" for English "50%".
+    assert check_translation("Only {percent}% of this video has downloaded.",
+                             "Bu videonun yalnızca %{percent} kadarı indirildi.") == []
+    assert check_translation("Box {percent} %", "Kutu %{percent}") == []
+    # A genuinely renamed argument is still caught, with or without the sign.
+    assert check_translation("Only {percent}% done", "Nur %{prozent} fertig") != []
+    # Ruby style sources keep their strict comparison.
+    assert check_translation("%{count} left", "{count} übrig") != []

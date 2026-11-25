@@ -97,6 +97,13 @@ def check_translation(source, target):
     problems = []
     src = extract_placeholders(source)
     tgt = extract_placeholders(target)
+    if not any(tok.startswith("%{") for tok in src):
+        # A percent sign written before an ICU argument is language, not a Ruby
+        # placeholder: Turkish "%{percent}" for English "{percent}%".
+        folded = Counter()
+        for tok, n in tgt.items():
+            folded[tok[1:] if tok.startswith("%{") and tok[1:] in src else tok] += n
+        tgt = folded
     tag_issues = set()
     for token in sorted(set(src) | set(tgt)):
         is_tag = token.startswith("<")
