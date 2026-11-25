@@ -56,7 +56,7 @@ BATCH_SIZE = 100
 RETRY_COUNT = 3
 
 # Translation providers (see translator.TranslationService)
-PROVIDERS = ('google', 'deepl', 'libre', 'microsoft', 'mymemory')
+PROVIDERS = ('google', 'google-gtx', 'deepl', 'libre', 'microsoft', 'mymemory')
 KEY_ORDERS = ('keep', 'source', 'alpha')
 
 # File settings
@@ -85,6 +85,7 @@ def get_default_config():
         'max_in_flight': None,        # None: parallel locales x workers per locale
         'backoff_max': 300,           # cap of the shared exponential backoff, seconds
         'breaker_threshold': 40,      # straight failures before the run aborts; 0 = never
+        'dead_start_failures': 8,     # straight failures with no success yet that abort the run (a blocked address); 0 = never
         'whitelist': list(WHITELIST),
         # Optional: override snapshot location. Defaults to <dir>/.langsync-state.json.
         'state_file': None,
@@ -192,6 +193,7 @@ _VALIDATORS = {
     'service_retries': (_is_positive_int, "a positive integer"),
     'max_in_flight': (_is_positive_int, "a positive integer"),
     'breaker_threshold': (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a non-negative integer"),
+    'dead_start_failures': (lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0, "a non-negative integer"),
     'requests_per_second': (
         lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
         "a non-negative number",

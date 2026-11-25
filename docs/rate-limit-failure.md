@@ -335,3 +335,20 @@ requests (a reply that does not split back into the same lines is halved and
 retried, then packing switches off), shared exponential backoff up to 300 s, 12
 retries per batch. Runs that still cannot finish stop with exit 3 and resume from
 the snapshot.
+
+## 7. Follow-up (2026-11-25): what was found and changed
+
+Re-tested on 0.11.0 from the TMPlayer repository (one locale, 619 missing keys). Verified:
+
+- `google` failed from the very first request ("too many requests"): translate.google.com/m
+  (the page deep-translator scrapes) answers this address with a captcha redirect. Zero
+  requests succeeded, the governor waited up to 300 s between tries and, because a one locale
+  run never has the three locales its breaker wants and `breaker_threshold` defaults to 40,
+  it would have run for hours.
+- `translate.googleapis.com/translate_a/single?client=gtx` answered 200 from the same address
+  and keeps newlines, so packing works. Added as provider `google-gtx` (`GtxTranslator`).
+  One locale, 619 keys: 40 s, 0 failed.
+- Added `dead_start_failures` (default 8): straight failures with no success yet in the run abort
+  it with exit code 3 and a message naming the likely cause and the other providers.
+- Machine output reads stiff for short UI strings (formal "Sie" where a catalog uses "du",
+  literal word order); have a person or a model check user facing strings.

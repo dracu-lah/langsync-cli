@@ -140,7 +140,8 @@ LangSync reads `langsync.json` or `.langsync.json` from the current directory or
 | `glossary` | Forced translations per language or locale. |
 | `exclude` | Glob patterns of keys that are copied as-is, never translated. |
 | `key_order` | `keep` (default), `source` or `alpha`. |
-| `provider` | `google` (default, no key), `deepl`, `libre`, `microsoft` or `mymemory`. |
+| `provider` | `google` (default, no key), `google-gtx` (no key, Google's `translate.googleapis.com` endpoint called directly: use it when `google` answers "too many requests" from the first call, which means the address is blocked on translate.google.com), `deepl`, `libre`, `microsoft` or `mymemory`. |
+| `dead_start_failures` | Straight failures with no success yet that abort the run, because the translator is blocking this address (default 8, 0 = never). |
 | `api_key_env`, `provider_url` | Env var holding the key (defaults: `DEEPL_API_KEY`, `LIBRETRANSLATE_API_KEY`, `MICROSOFT_TRANSLATOR_KEY`), and the LibreTranslate server URL. |
 | `source_lang`, `language_map` | Override the source language, or map a locale to the provider's code (`{"nb-NO": "no"}`). |
 | `batch_size`, `max_parallel_locales`, `max_workers_per_locale`, `delay_between_requests`, `retry_count` | Throughput and rate-limit tuning. |

@@ -98,3 +98,31 @@ def test_threads_never_exceed_rate(clock):
         window = [x for x in stamps if s <= x < s + 1.0]
         assert len(window) <= 5 + 8  # burst plus calls already in flight
     assert len(stamps) == 80
+
+
+def test_dead_start_aborts_fast_when_nothing_ever_succeeded(clock):
+    """A provider that refuses every request from the first call is blocking this
+    client: stop after a few tries, not after minutes of waiting per try (a one
+    locale run never has two locales to satisfy the breaker's scope rule)."""
+    gov = Governor(rate=0, breaker_threshold=40)
+    for _ in range(gov.dead_start):
+        gov.acquire()
+        gov.penalize("rate_limit", "too many requests", scope="de")
+        gov.release()
+    assert gov.open_reason and "from the start" in gov.open_reason
+    assert "google-gtx" in gov.open_reason
+    with pytest.raises(BreakerOpen):
+        gov.acquire()
+    assert clock.monotonic() < 400  # minutes at most, not the hour a 40-failure breaker takes
+
+
+def test_dead_start_does_not_apply_after_a_success(clock):
+    gov = Governor(rate=0, breaker_threshold=8)
+    gov.acquire()
+    gov.success()
+    gov.release()
+    for _ in range(gov.threshold - 1):
+        gov.acquire()
+        gov.penalize("rate_limit", "too many requests", scope="de")
+        gov.release()
+    assert gov.open_reason is None  # the normal breaker rules still decide

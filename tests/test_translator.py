@@ -605,3 +605,61 @@ def test_batch_api_error_raises_translation_error(mocker):
     with pytest.raises(TranslationError) as exc_info:
         service.translate_batch(["Hello"], delay=0)
     assert exc_info.value.kind == "api"
+
+
+class _GtxReply:
+    def __init__(self, status, body=None):
+        self.status_code = status
+        self._body = body
+        self.headers = {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            err = requests.exceptions.HTTPError(f"{self.status_code} error")
+            err.response = self
+            raise err
+
+    def json(self):
+        return self._body
+
+
+def test_gtx_joins_the_pieces_and_keeps_newlines(monkeypatch):
+    from langsync import translator as tr
+    sent = {}
+
+    def fake_post(url, params=None, data=None, timeout=None, headers=None):
+        sent.update(url=url, params=params, data=data)
+        return _GtxReply(200, [[["Hallo\n", "Hello\n", None], ["Welt", "World", None]], None, "en"])
+
+    monkeypatch.setattr(tr._requests, "post", fake_post)
+    gtx = tr.GtxTranslator(source="en", target="de")
+    assert gtx.translate("Hello\nWorld") == "Hallo\nWelt"
+    assert sent["params"]["tl"] == "de" and sent["params"]["client"] == "gtx"
+    assert sent["data"] == {"q": "Hello\nWorld"}
+    assert gtx.translate("  ") == "  "  # nothing to translate: no request
+
+
+def test_gtx_rate_limit_reaches_the_governor_as_a_rate_limit(monkeypatch):
+    from langsync import translator as tr
+    monkeypatch.setattr(tr._requests, "post", lambda *a, **k: _GtxReply(429))
+    with pytest.raises(Exception) as caught:
+        tr.GtxTranslator("en", "de").translate("Hello")
+    kind, _, _, status = tr._error_info(caught.value)
+    assert kind == "rate_limit" and status == 429
+
+
+def test_gtx_unreadable_reply_is_an_api_error(monkeypatch):
+    from langsync import translator as tr
+    monkeypatch.setattr(tr._requests, "post", lambda *a, **k: _GtxReply(200, {"oops": 1}))
+    with pytest.raises(tr.TranslationError) as caught:
+        tr.GtxTranslator("en", "de").translate("Hello")
+    assert caught.value.kind == "api"
+
+
+def test_gtx_provider_uses_google_language_codes_and_packs_requests():
+    from langsync import translator as tr
+    assert tr.resolve_language("zh-CN", "google-gtx") == tr.resolve_language("zh-CN", "google")
+    assert tr.resolve_language("pt-BR", "google-gtx") == tr.resolve_language("pt-BR", "google")
+    svc = tr.TranslationService(source_lang="en", target_lang="de", provider="google-gtx")
+    assert isinstance(svc.translator, tr.GtxTranslator)

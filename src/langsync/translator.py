@@ -30,6 +30,46 @@ except ImportError:  # pragma: no cover
     _requests = None
 
 
+GTX_URL = "https://translate.googleapis.com/translate_a/single"
+GTX_PROVIDERS = ("google", "google-gtx")
+
+
+class GtxTranslator:
+    """Google's keyless `translate_a/single` endpoint (client=gtx), called directly.
+
+    deep-translator's GoogleTranslator scrapes translate.google.com/m, which Google
+    answers with a captcha redirect (seen as "too many requests") for an address it
+    has flagged, while this endpoint keeps answering. Same free, unofficial class of
+    service, so the run's governor still paces it. Newlines survive a round trip,
+    which the request packing relies on. A non-200 reply raises requests' HTTPError
+    (carrying the response, so a 429 and its Retry-After reach the governor).
+    """
+
+    def __init__(self, source="auto", target="en", timeout=20):
+        self.source, self.target, self.timeout = source or "auto", target, timeout
+
+    def translate(self, text):
+        if not text or not text.strip():
+            return text
+        if _requests is None:  # pragma: no cover
+            raise TranslationError("provider 'google-gtx' needs the requests package", kind="init")
+        resp = _requests.post(
+            GTX_URL,
+            params={"client": "gtx", "sl": self.source, "tl": self.target, "dt": "t"},
+            data={"q": text}, timeout=self.timeout,
+            headers={"User-Agent": "Mozilla/5.0 (langsync)"},
+        )
+        resp.raise_for_status()
+        try:
+            rows = resp.json()[0]
+            return "".join(row[0] for row in rows if row and row[0])
+        except (ValueError, IndexError, TypeError, KeyError) as exc:
+            raise TranslationError(f"unreadable reply from the translator: {exc}", kind="api") from exc
+
+    def translate_batch(self, texts):
+        return [self.translate(t) for t in texts]
+
+
 # Longest segment sent to the API in one piece. Google rejects 5000+ chars.
 MAX_SEGMENT_CHARS = 4500
 PACK_CHARS = 3500  # characters per packed request
@@ -288,6 +328,8 @@ def resolve_language(locale, provider="google", overrides=None):
                 return lowered[key]
 
     provider = (provider or "google").lower()
+    if provider == "google-gtx":
+        provider = "google"  # same language codes
 
     if provider == "deepl":
         if base == "zh":
@@ -522,6 +564,8 @@ class TranslationService:
         try:
             if self.provider == "google":
                 return GoogleTranslator(source=source, target=target)
+            if self.provider == "google-gtx":
+                return GtxTranslator(source=source, target=target)
             if self.provider == "deepl":
                 return DeeplTranslator(
                     api_key=self.api_key, source=source, target=target,
@@ -699,7 +743,7 @@ class TranslationService:
         trusted: the pack is halved and retried, and after three such misses the
         service stops packing and sends one segment per request.
         """
-        if self.provider != "google" or not self.pack_requests:
+        if self.provider not in GTX_PROVIDERS or not self.pack_requests:
             return _gated(lambda: self.translator.translate_batch(flat), self.target_lang,
                           self._meta(len(flat), sum(len(t) for t in flat), False))
         if len(flat) < 2 or not self._pack_ok:

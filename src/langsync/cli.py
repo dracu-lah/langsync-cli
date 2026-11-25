@@ -38,7 +38,7 @@ from . import __version__
 
 console = Console()
 
-PROVIDERS = ("google", "deepl", "libre", "microsoft", "mymemory")
+PROVIDERS = ("google", "google-gtx", "deepl", "libre", "microsoft", "mymemory")
 
 # Where each provider's API key is looked up when the config names none.
 PROVIDER_KEY_ENV = {
@@ -1399,6 +1399,7 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
             or max_parallel_locales * max(1, int(config_data.get('max_workers_per_locale') or 1)),
             backoff_max=config_data.get('backoff_max', 60),
             breaker_threshold=config_data.get('breaker_threshold', 8),
+            dead_start=config_data.get('dead_start_failures', 8),
         )
         governor.min_scopes = max(1, min(3, len(target_locales)))
         runlog.info("config", config_file=cfg_label, provider=provider, locales=len(target_locales),

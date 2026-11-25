@@ -60,7 +60,7 @@ def backoff_delay(failures, base=1.0, cap=60.0, jitter=0.25, rnd=None):
 class Governor:
     def __init__(self, rate=4.0, burst=None, max_in_flight=None, backoff_base=1.0,
                  backoff_max=60.0, breaker_threshold=8, retry_after_cap=300.0,
-                 rnd=None):
+                 rnd=None, dead_start=8):
         self.rate = float(rate) if rate else 0.0  # 0 disables pacing
         self.capacity = float(burst or max(1.0, self.rate))
         self.backoff_base = backoff_base
@@ -81,6 +81,11 @@ class Governor:
         self.open_reason = None
         self.last_message = None
         self.blocked = False  # provider answered with a hard block (captcha)
+        self.ever_ok = False  # a request has succeeded in this run
+        # Straight failures with no success yet that end the run: a provider that
+        # refuses everything from the first call is blocking this client, and waiting
+        # minutes between tries only wastes the session.
+        self.dead_start = dead_start or 0  # 0 disables
 
     # -- gate ---------------------------------------------------------------
     def _refill(self, now):
@@ -123,6 +128,7 @@ class Governor:
     def success(self):
         with self._cond:
             self.failures = 0
+            self.ever_ok = True
             self._scopes.clear()
 
     def penalize(self, kind, message, retry_after=None, hard=False, scope=None):
@@ -141,7 +147,15 @@ class Governor:
                                  + (f", retry-after {retry_after}" if retry_after else ""))
             if hard:
                 self.blocked = True
-            if self.threshold and (hard or (self.failures >= self.threshold
+            if self.dead_start and not self.ever_ok and self.failures >= self.dead_start \
+                    and not self.open_reason:
+                self.open_reason = (
+                    f"run aborted: the translator refused all {self.failures} requests from "
+                    f"the start and none succeeded ({kind}); it is probably blocking this "
+                    f"address. Wait a while, or try another provider (-p google-gtx, mymemory)"
+                )
+                runlog.governor_open(self.open_reason)
+            elif self.threshold and (hard or (self.failures >= self.threshold
                                             and (len(self._scopes) >= self.min_scopes
                                                  or self.failures >= 2 * self.threshold))):
                 what = "blocked the client" if hard else "refused or failed"
