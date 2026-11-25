@@ -1400,6 +1400,7 @@ def main(source, dir, locales, add_locales, config, provider, rewrite, update_ch
             backoff_max=config_data.get('backoff_max', 60),
             breaker_threshold=config_data.get('breaker_threshold', 8),
             dead_start=config_data.get('dead_start_failures', 8),
+            max_stall=config_data.get('max_stall_seconds', 900),
         )
         governor.min_scopes = max(1, min(3, len(target_locales)))
         runlog.info("config", config_file=cfg_label, provider=provider, locales=len(target_locales),

@@ -352,3 +352,10 @@ Re-tested on 0.11.0 from the TMPlayer repository (one locale, 619 missing keys).
   it with exit code 3 and a message naming the likely cause and the other providers.
 - Machine output reads stiff for short UI strings (formal "Sie" where a catalog uses "du",
   literal word order); have a person or a model check user facing strings.
+
+Second finding the same day: `google-gtx` at `requests_per_second` 2 answered about 350 requests in
+3.5 minutes (12 of 21 locales), then returned 429 to every retry for at least 30 minutes while the
+governor waited 300 s between tries (the breaker needed 40 straight failures). Added
+`max_stall_seconds` (default 900): no success for that long ends the run with exit code 3 and keeps
+what was written. For a free endpoint use `requests_per_second` 1 or lower, and expect a cap of a few
+hundred requests per address per window; a packed request carries up to about 3,500 characters.

@@ -126,3 +126,29 @@ def test_dead_start_does_not_apply_after_a_success(clock):
         gov.penalize("rate_limit", "too many requests", scope="de")
         gov.release()
     assert gov.open_reason is None  # the normal breaker rules still decide
+
+
+def test_stall_aborts_a_run_that_was_working_and_is_now_throttled(clock):
+    """Some requests succeeded, then every one is refused: give up after max_stall
+    seconds instead of sleeping five minutes per try for hours."""
+    gov = Governor(rate=0, breaker_threshold=40, backoff_max=300, max_stall=900)
+    gov.acquire()
+    gov.success()
+    gov.release()
+    tries = 0
+    while not gov.open_reason and tries < 40:
+        gov.acquire()
+        gov.penalize("rate_limit", "429", scope="de")
+        gov.release()
+        tries += 1
+    assert gov.open_reason and "no request succeeded" in gov.open_reason
+    assert tries < 20 and 900 <= clock.monotonic() < 1500
+
+
+def test_stall_limit_can_be_switched_off(clock):
+    gov = Governor(rate=0, breaker_threshold=0, backoff_max=300, max_stall=0, dead_start=0)
+    for _ in range(30):
+        gov.acquire()
+        gov.penalize("rate_limit", "429", scope="de")
+        gov.release()
+    assert gov.open_reason is None

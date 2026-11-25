@@ -60,7 +60,7 @@ def backoff_delay(failures, base=1.0, cap=60.0, jitter=0.25, rnd=None):
 class Governor:
     def __init__(self, rate=4.0, burst=None, max_in_flight=None, backoff_base=1.0,
                  backoff_max=60.0, breaker_threshold=8, retry_after_cap=300.0,
-                 rnd=None, dead_start=8):
+                 rnd=None, dead_start=8, max_stall=900.0):
         self.rate = float(rate) if rate else 0.0  # 0 disables pacing
         self.capacity = float(burst or max(1.0, self.rate))
         self.backoff_base = backoff_base
@@ -86,6 +86,11 @@ class Governor:
         # refuses everything from the first call is blocking this client, and waiting
         # minutes between tries only wastes the session.
         self.dead_start = dead_start or 0  # 0 disables
+        # Seconds without a single success (counted from the last one, or from the
+        # first failure) after which the run is given up: a throttled address that
+        # stays throttled would otherwise sleep for hours. 0 disables.
+        self.max_stall = (max_stall or 0) if breaker_threshold else 0  # breaker off = never abort
+        self._ok_at = time.monotonic()
 
     # -- gate ---------------------------------------------------------------
     def _refill(self, now):
@@ -129,6 +134,7 @@ class Governor:
         with self._cond:
             self.failures = 0
             self.ever_ok = True
+            self._ok_at = time.monotonic()
             self._scopes.clear()
 
     def penalize(self, kind, message, retry_after=None, hard=False, scope=None):
@@ -147,7 +153,16 @@ class Governor:
                                  + (f", retry-after {retry_after}" if retry_after else ""))
             if hard:
                 self.blocked = True
-            if self.dead_start and not self.ever_ok and self.failures >= self.dead_start \
+            if self.max_stall and not self.open_reason and self.failures > 1 \
+                    and time.monotonic() - self._ok_at >= self.max_stall:
+                mins = int(self.max_stall // 60)
+                self.open_reason = (
+                    f"run aborted: no request succeeded for {mins} minutes ({kind}); the "
+                    f"translator is throttling this address. What was translated is kept, "
+                    f"run again later (or slow down with requests_per_second, or -p another provider)"
+                )
+                runlog.governor_open(self.open_reason)
+            elif self.dead_start and not self.ever_ok and self.failures >= self.dead_start \
                     and not self.open_reason:
                 self.open_reason = (
                     f"run aborted: the translator refused all {self.failures} requests from "
